@@ -2,7 +2,7 @@
 
 ## Description
 
-This is a serverless application written in Rust, designed to run on AWS Lambda. The application acts as a Telegram bot that handles incoming HTTP requests.
+Serverless telegram bot written in Rust which converts audio to text.
 
 ## Instructions
 
