@@ -12,7 +12,6 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
             .map_err(Box::new)?);
     }
 
-
     // Extract the request body
     let body = req.body();
 
@@ -76,7 +75,6 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
         .parse()
         .unwrap(),
     );
-    // headers.insert(CONTENT_TYPE, "multipart/form-data".parse().unwrap());
 
     // Create multipart request
     let part = reqwest::multipart::Part::bytes(file)
@@ -121,9 +119,6 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
         .json(&body)
         .send()
         .await?;
-
-    // Log response from Telegram
-    info!("Response from Telegram: {:?}", res);
 
     // Check if the response was successful
     if !res.status().is_success() {
