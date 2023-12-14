@@ -26,6 +26,6 @@ jobs:
               with:
                 repo: cargo-lambda/cargo-lambda
                 platform: linux # Other valid options: 'windows' or 'darwin'
-                arch: aarch64 # Other valid options for linux: 'aarch64'
+                arch: x86_64 # Other valid options: 'aarch64'
             - name: Check if code compiles
-              run: cargo lambda build --arm64 # no release for faster builds (this isn't going into prod)
+              run: cargo lambda build # no release for faster builds (this isn't going into prod)
