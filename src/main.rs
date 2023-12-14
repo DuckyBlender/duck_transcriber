@@ -164,7 +164,7 @@ async fn send_telegram_message(
         env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not found")
     );
     
-    let text = format!("{}\n\n*Powered by [OpenAI Whisper](https://openai.com/blog/openai-whisper/)*", text);
+    let text = format!("{}\n*Powered by [OpenAI Whisper](https://openai.com/research/whisper)*", text);
 
     // Build JSON body for sending text to Telegram
     let mut body = json!({
