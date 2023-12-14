@@ -25,6 +25,7 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
     let is_voice_message = json_body["message"]["voice"].is_object();
     if !is_voice_message {
         // If not a voice message, log and return an empty response
+        // TODO: Implement support for audio files (not just voice messages)
         info!("Not a voice message");
         return Ok(Response::builder()
             .status(200)
