@@ -1,5 +1,5 @@
 use lambda_http::{http::HeaderMap, run, service_fn, Body, Error, Request, Response};
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::AUTHORIZATION;
 use serde_json::json;
 use std::env;
 use tracing::info;
@@ -158,62 +158,39 @@ async fn send_telegram_message(
     reply_to_message_id: Option<&serde_json::Value>,
 ) -> Result<(), Error> {
     info!("Sending message to Telegram: {}", text);
-
     // Build URL for sending text back to Telegram
     let url = format!(
         "https://api.telegram.org/bot{}/sendMessage",
         env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not found")
     );
+    
+    let text = format!("{}\n\n*Powered by [OpenAI Whisper](https://openai.com/blog/openai-whisper/)*", text);
 
     // Build JSON body for sending text to Telegram
     let mut body = json!({
         "chat_id": chat_id,
         "text": text,
+        "disable_notification": true,
+        "disable_web_page_preview": true,
+        "allow_sending_without_reply": true,
+        "parse_mode": "MarkdownV2",
     });
 
-    // Only include reply_to_message_id if it is present and valid
     if let Some(reply_id) = reply_to_message_id {
-        if reply_id.is_number() || reply_id.is_string() {
-            body["reply_to_message_id"] = reply_id.clone();
-        } else {
-            info!("Invalid or missing reply_to_message_id, sending message without replying.");
-        }
+        body["reply_to_message_id"] = reply_id.clone();
     }
 
     // Send text back to Telegram
     let client = reqwest::Client::new();
     let res = client
         .post(&url)
-        .header(CONTENT_TYPE, "application/json")
+        // json() sets the Content-Type header to application/json
         .json(&body)
         .send()
         .await?;
 
     // Check if the response was successful
     if !res.status().is_success() {
-        // Try again without message id
-        if reply_to_message_id.is_some() {
-            info!("Retrying without reply_to_message_id");
-            // can't use the function again because rust doesn't allow it
-            let body = json!({
-                "chat_id": chat_id,
-                "text": text,
-            });
-            let client = reqwest::Client::new();
-            let res = client
-                .post(&url)
-                .header(CONTENT_TYPE, "application/json")
-                .json(&body)
-                .send()
-                .await?;
-            if !res.status().is_success() {
-                return Err(lambda_http::Error::from(format!(
-                    "Telegram responded with status code {}. Even with retry with no message id. Details: {:?}",
-                    res.status(),
-                    res
-                )));
-            }
-        }
         return Err(lambda_http::Error::from(format!(
             "Telegram responded with status code {}. Details: {:?}",
             res.status(),
