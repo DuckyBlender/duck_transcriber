@@ -25,9 +25,7 @@ jobs:
               uses: jaxxstorm/action-install-gh-release@v1.9.0
               with:
                 repo: cargo-lambda/cargo-lambda
-                platform: linux
-                arch: aarch64
-            - name: Compile Rust code
-              run: cargo lambda build --release --arm64
-            # - name: Upload Lambda (maybe later i dont like this rn)
-            #   run: cargo lambda deploy
+                platform: linux # Other valid options: 'windows' or 'darwin'
+                arch: aarch64 # Other valid options for linux: 'aarch64'
+            - name: Check if code compiles
+              run: cargo lambda build --arm64 # no release for faster builds (this isn't going into prod)
