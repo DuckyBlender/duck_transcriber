@@ -163,8 +163,11 @@ async fn send_telegram_message(
         "https://api.telegram.org/bot{}/sendMessage",
         env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not found")
     );
-    
-    let text = format!("{}\n*Powered by [OpenAI Whisper](https://openai.com/research/whisper)*", text);
+
+    let text = format!(
+        "{}\n<i>Powered by <a href=\"https://openai.com/research/whisper\">OpenAI Whisper</a></i>",
+        text
+    );
 
     // Build JSON body for sending text to Telegram
     let mut body = json!({
@@ -173,12 +176,14 @@ async fn send_telegram_message(
         "disable_notification": true,
         "disable_web_page_preview": true,
         "allow_sending_without_reply": true,
-        "parse_mode": "MarkdownV2",
+        "parse_mode": "HTML",
     });
 
     if let Some(reply_id) = reply_to_message_id {
         body["reply_to_message_id"] = reply_id.clone();
     }
+
+    info!("Sending message to Telegram: {:?}", body);
 
     // Send text back to Telegram
     let client = reqwest::Client::new();
