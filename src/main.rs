@@ -1,7 +1,10 @@
 use lambda_http::{http::HeaderMap, run, service_fn, Body, Error, Request, Response};
-use reqwest::header::AUTHORIZATION;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+use serde_json::json;
 use std::env;
 use tracing::info;
+
+const MINUTE_LIMIT: i64 = 5;
 
 async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> {
     // If the request is GET, return an empty response
@@ -34,6 +37,51 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
         .as_str()
         .ok_or_else(|| lambda_http::Error::from("Missing file_id in voice message"))?;
 
+    // Check the duration of the audio file
+    let duration = json_body["message"]["voice"]["duration"]
+        .as_i64()
+        .ok_or_else(|| lambda_http::Error::from("Missing duration in voice message"))?;
+    if duration > MINUTE_LIMIT * 60 {
+        // If the audio is longer than 5 minutes, send a "too long audio" message
+        send_telegram_message(
+            &json_body["message"]["chat"]["id"],
+            format!(
+                "The audio message is too long. Maximum duration is {} minutes.",
+                MINUTE_LIMIT
+            )
+            .as_str(),
+            Some(&json_body["message"]["message_id"]),
+        )
+        .await?;
+        return Ok(Response::builder()
+            .status(200)
+            .body(Body::Empty)
+            .map_err(Box::new)?);
+    }
+
+    // Send 'typing' action to Telegram
+    send_telegram_action(&json_body["message"]["chat"]["id"], "typing").await?;
+
+    // Fetch the file from Telegram and send it to OpenAI for transcription
+    let text = fetch_and_transcribe(file_id).await?;
+
+    // Send the transcribed text back to Telegram
+    send_telegram_message(
+        &json_body["message"]["chat"]["id"],
+        &text,
+        Some(&json_body["message"]["message_id"]),
+    )
+    .await?;
+
+    Ok(Response::builder()
+        .status(200)
+        .body(Body::Empty)
+        .map_err(Box::new)?)
+}
+
+async fn fetch_and_transcribe(file_id: &str) -> Result<String, Error> {
+    info!("Fetching info about file from Telegram: {}", file_id);
+
     // Build Telegram file URL
     let file_url = format!(
         "https://api.telegram.org/bot{}/getFile?file_id={}",
@@ -42,8 +90,7 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
     );
 
     // Fetch file information from Telegram
-    let file_url = reqwest::Url::parse(&file_url)?;
-    let file_info = reqwest::get(file_url)
+    let file_info = reqwest::get(&file_url)
         .await?
         .json::<serde_json::Value>()
         .await?;
@@ -60,9 +107,12 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
         file_path
     );
 
+    info!("Fetching file from Telegram: {}", file_url);
+
     // Fetch the file from Telegram
-    let file_url = reqwest::Url::parse(&file_url)?;
-    let file = reqwest::get(file_url).await?.bytes().await?.to_vec();
+    let file = reqwest::get(&file_url).await?.bytes().await?.to_vec();
+
+    info!("Sending file to OpenAI Whisper for transcription");
 
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
@@ -98,6 +148,15 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
     // Extract text from OpenAI response
     let text = res.text().await?;
 
+    Ok(text)
+}
+
+async fn send_telegram_message(
+    chat_id: &serde_json::Value,
+    text: &str,
+    reply_to_message_id: Option<&serde_json::Value>,
+) -> Result<(), Error> {
+    info!("Sending message to Telegram: {}", text);
     // Build URL for sending text back to Telegram
     let url = format!(
         "https://api.telegram.org/bot{}/sendMessage",
@@ -105,17 +164,19 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
     );
 
     // Build JSON body for sending text to Telegram
-    let body = serde_json::json!({
-        "chat_id": json_body["message"]["chat"]["id"],
+    let mut body = json!({
+        "chat_id": chat_id,
         "text": text,
-        "reply_to_message_id": json_body["message"]["message_id"],
     });
+    if let Some(reply_id) = reply_to_message_id {
+        body["reply_to_message_id"] = reply_id.clone();
+    }
 
     // Send text back to Telegram
     let client = reqwest::Client::new();
     let res = client
         .post(&url)
-        // json header is automatically set
+        .header(CONTENT_TYPE, "application/json")
         .json(&body)
         .send()
         .await?;
@@ -124,14 +185,47 @@ async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> 
     if !res.status().is_success() {
         return Err(lambda_http::Error::from(format!(
             "Telegram responded with status code {}. Details: {:?}",
-            res.status(), res
+            res.status(),
+            res
         )));
     }
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Empty)
-        .map_err(Box::new)?)
+    Ok(())
+}
+
+async fn send_telegram_action(chat_id: &serde_json::Value, action: &str) -> Result<(), Error> {
+    info!("Sending action to Telegram: {}", action);
+    // Build URL for sending action to Telegram
+    let url = format!(
+        "https://api.telegram.org/bot{}/sendChatAction",
+        env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not found")
+    );
+
+    // Build JSON body for sending action to Telegram
+    let body = json!({
+        "chat_id": chat_id,
+        "action": action,
+    });
+
+    // Send action to Telegram
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        // json() sets the Content-Type header to application/json
+        .json(&body)
+        .send()
+        .await?;
+
+    // Check if the response was successful
+    if !res.status().is_success() {
+        return Err(lambda_http::Error::from(format!(
+            "Telegram responded with status code {}. Details: {:?}",
+            res.status(),
+            res
+        )));
+    }
+
+    Ok(())
 }
 
 #[tokio::main]
