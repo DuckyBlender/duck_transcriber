@@ -19,7 +19,6 @@ const MINUTE_LIMIT: u32 = 5;
 pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> {
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
     let update = utils::convert_input_to_json(req).await?;
-    info!("update: {:?}", update);
 
     // Match the update type
     match update.kind {
@@ -60,14 +59,12 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             let file = bot.get_file(voice_id).await?;
             let file_path = file.path.clone();
             let mut buffer = Vec::new();
-            info!("Downloading file: {:?}", file_path);
+            info!("Downloading file to buffer");
             bot.download_file(&file_path, &mut buffer).await?;
-            info!("Downloaded file: {:?}", file_path);
 
             // Send file to OpenAI Whisper for transcription
             info!("Sending file to OpenAI Whisper for transcription");
             let text = openai::transcribe_audio(buffer).await?;
-            info!("Received text from OpenAI Whisper: {:?}", text);
 
             let text = format!(
                 "{text}\n<i>Powered by <a href=\"https://openai.com/research/whisper\">OpenAI Whisper</a></i>"
