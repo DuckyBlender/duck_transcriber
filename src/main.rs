@@ -1,8 +1,8 @@
 use lambda_http::{run, service_fn, Error};
 use tracing_subscriber::fmt;
 
-mod telegram;
 mod openai;
+mod telegram;
 mod utils;
 
 #[tokio::main]
