@@ -9,6 +9,7 @@ use teloxide::{
     Bot,
 };
 use tracing::info;
+use teloxide::types::ChatAction::Typing;
 
 use crate::openai;
 use crate::utils;
@@ -51,14 +52,22 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             }
 
             // Now that we know that the voice message is shorter then x minutes, download it and send it to openai
+            // Send "typing" action to user
+            bot.send_chat_action(message.chat.id, Typing)
+                .await?;
+
             let voice_id = voice.file.id.clone();
             let file = bot.get_file(voice_id).await?;
             let file_path = file.path.clone();
             let mut buffer = Vec::new();
+            info!("Downloading file: {:?}", file_path);
             bot.download_file(&file_path, &mut buffer).await?;
+            info!("Downloaded file: {:?}", file_path);
 
             // Send file to OpenAI Whisper for transcription
+            info!("Sending file to OpenAI Whisper for transcription");
             let text = openai::transcribe_audio(buffer).await?;
+            info!("Received text from OpenAI Whisper: {:?}", text);
 
             let text = format!(
                 "{text}\n<i>Powered by <a href=\"https://openai.com/research/whisper\">OpenAI Whisper</a></i>"
