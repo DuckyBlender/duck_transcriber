@@ -35,7 +35,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             let voice = message.voice().unwrap();
 
             // Check if voice message is longer than 1 minute
-            if voice.duration > MINUTE_LIMIT {
+            if voice.duration > MINUTE_LIMIT * 60 {
                 // Send a message to the user
                 bot.send_message(
                     message.chat.id,
