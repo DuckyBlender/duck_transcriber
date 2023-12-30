@@ -23,6 +23,11 @@ https://www.cargo-lambda.info/
 Now that cargo lambda is installed, build the project (preferrably for ARM)
 
 ```bash
+# some dependencies (fedora)
+sudo dnf install perl-core openssl openssl-devel
+```
+
+```bash
 cargo lambda build --release --arm64
 ```
 

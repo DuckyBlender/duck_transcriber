@@ -5,7 +5,7 @@ use teloxide::{
     net::Download,
     payloads::SendMessageSetters,
     requests::Requester,
-    types::{ParseMode, UpdateKind},
+    types::UpdateKind,
     Bot,
 };
 use tracing::info;
@@ -66,14 +66,9 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             info!("Sending file to OpenAI Whisper for transcription");
             let text = openai::transcribe_audio(buffer).await?;
 
-            let text = format!(
-                "{text}\n<i>Powered by <a href=\"https://openai.com/research/whisper\">OpenAI Whisper</a></i>"
-            );
-
             // Send text to user
             bot.send_message(message.chat.id, text)
                 .reply_to_message_id(message.id)
-                .parse_mode(ParseMode::Html)
                 .disable_web_page_preview(true)
                 .disable_notification(true)
                 .allow_sending_without_reply(true)
