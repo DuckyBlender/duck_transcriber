@@ -43,7 +43,7 @@ pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
     let text = json["text"].as_str().unwrap();
     let language = json["language"].as_str().unwrap();
 
-    let output = format!("{}\n\nLanguage: {}\nPowered by OpenAI Whisper", text, language);
+    let output = format!("{}\n(Language: {})", text, language);
 
     Ok(output)
 }
