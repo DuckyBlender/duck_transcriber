@@ -2,6 +2,7 @@ use lambda_http::{http::HeaderMap, Error};
 use reqwest::header::AUTHORIZATION;
 use std::env;
 
+
 pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
@@ -22,7 +23,7 @@ pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
         .unwrap();
     let form = reqwest::multipart::Form::new()
         .text("model", "whisper-1")
-        .text("response_format", "text")
+        .text("response_format", "verbose_json")
         .part("file", part);
 
     // Send file to OpenAI Whisper for transcription
@@ -35,7 +36,14 @@ pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
         .await?;
 
     // Extract text from OpenAI response
-    let text = res.text().await?;
+    // Response is in verbose_json
+    let json = res.json::<serde_json::Value>().await?;
 
-    Ok(text)
+    // Get the text from the response
+    let text = json["text"].as_str().unwrap();
+    let language = json["language"].as_str().unwrap();
+
+    let output = format!("{}\n\nLanguage: {}\nPowered by OpenAI Whisper", text, language);
+
+    Ok(output)
 }
