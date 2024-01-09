@@ -6,7 +6,7 @@ Serverless telegram bot written in Rust which converts audio to text.
 
 ## Todo
 - [x] Complete basic bot
-- [x] Rewrite to use tdlib crate
+- [x] Rewrite to use teloxide crate
 
 ## Instructions
 
