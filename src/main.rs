@@ -4,6 +4,7 @@ use tracing_subscriber::fmt;
 mod openai;
 mod telegram;
 mod utils;
+mod bedrock;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

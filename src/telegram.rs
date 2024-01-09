@@ -11,6 +11,7 @@ use teloxide::{
 use tracing::info;
 use teloxide::types::ChatAction::Typing;
 
+use crate::bedrock;
 use crate::openai;
 use crate::utils;
 
@@ -30,6 +31,31 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
     match update.kind {
         // If the update is a message
         UpdateKind::Message(message) => {
+            // Check if the message is a text message
+            if let Some(text) = message.text() {
+                // Check if the text starts with /img
+                if text.starts_with("/img") {
+                    // Get the prompt
+                    let prompt = text.replace("/img", "").trim().to_string();
+                    // Send "typing" action to user
+                    bot.send_chat_action(message.chat.id, Typing)
+                        .await?;
+
+                    
+
+                    // Generate the image
+                    let image = bedrock::generate_image(prompt).await.unwrap();
+                    let image = teloxide::types::InputFile::memory(image);
+
+                    // Send the image to the user
+                    bot.send_photo(message.chat.id, image)
+                        .await?;
+                    return Ok(Response::builder()
+                        .status(200)
+                        .body(Body::Text("Image sent".into()))
+                        .unwrap());
+                }
+            }
             // Check if the message is a voice message
             if message.voice().is_none() && message.video_note().is_none() {
                 info!("Not a voice or video message");
