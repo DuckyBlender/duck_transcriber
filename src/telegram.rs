@@ -73,15 +73,14 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         .await;
 
                     // Generate the image
-                    let image = match bedrock::generate_image(prompt).await {
+                    let image = match bedrock::generate_image(prompt.clone()).await {
                         Ok(image) => image,
                         Err(e) => {
                             info!("Failed to generate image: {}", e);
                             bot.send_message(
                                 message.chat.id,
                                 format!(
-                                    "Failed to generate image. Please try again later. ({})",
-                                    e
+                                    "Failed to generate image. Please try again later. ({e})"
                                 ),
                             )
                             .reply_to_message_id(message.id)
@@ -89,7 +88,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                             .unwrap();
                             return Ok(Response::builder()
                                 .status(200)
-                                .body(Body::Text(format!("Failed to generate image: {}", e)))
+                                .body(Body::Text(format!("Failed to generate image: {e}")))
                                 .unwrap());
                         }
                     };
@@ -98,6 +97,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     // Send the image to the user
                     if let Err(e) = bot
                         .send_photo(message.chat.id, image)
+                        .caption(prompt)
                         .reply_to_message_id(message.id)
                         .allow_sending_without_reply(true)
                         .await
@@ -105,13 +105,13 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         info!("Failed to send image: {}", e);
                         bot.send_message(
                             message.chat.id,
-                            format!("Failed to send image. Please try again later. ({})", e),
+                            format!("Failed to send image. Please try again later. ({e})"),
                         )
                         .reply_to_message_id(message.id)
                         .await?;
                         return Ok(Response::builder()
                             .status(200)
-                            .body(Body::Text(format!("Failed to send image: {}", e)))
+                            .body(Body::Text(format!("Failed to send image: {e}")))
                             .unwrap());
                     }
 
@@ -200,15 +200,14 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     bot.send_message(
                         message.chat.id,
                         format!(
-                            "Failed to transcribe audio. Please try again later. ({})",
-                            e
+                            "Failed to transcribe audio. Please try again later. ({e})"
                         ),
                     )
                     .reply_to_message_id(message.id)
                     .await?;
                     return Ok(Response::builder()
                         .status(200)
-                        .body(Body::Text(format!("Failed to transcribe audio: {}", e)))
+                        .body(Body::Text(format!("Failed to transcribe audio: {e}")))
                         .unwrap());
                 }
             };

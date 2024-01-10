@@ -33,20 +33,20 @@ pub async fn generate_image(prompt: String) -> Result<Vec<u8>, String> {
         .content_type("application/json")
         .send()
         .await
-        .map_err(|err| format!("Failed to invoke model: {}", err))?;
+        .map_err(|err| format!("Failed to invoke model: {err}"))?;
 
     let output_blob: Blob = resp.body;
     let output_bytes: &[u8] = output_blob.as_ref();
-    let output_str = std::str::from_utf8(output_bytes)
-        .map_err(|err| format!("Failed to convert output bytes to string: {}", err))?;
+    let output_str = core::str::from_utf8(output_bytes)
+        .map_err(|err| format!("Failed to convert output bytes to string: {err}"))?;
     let output_string: String = output_str.to_owned();
 
     let output_json: serde_json::Value = serde_json::from_str(&output_string)
-        .map_err(|err| format!("Failed to parse output string as JSON: {}", err))?;
+        .map_err(|err| format!("Failed to parse output string as JSON: {err}"))?;
     let base64_image: &str = output_json["images"][0].as_str().unwrap_or_default();
     let output_image_bytes = BASE64
         .decode(base64_image)
-        .map_err(|err| format!("Failed to decode base64 image: {}", err))?;
+        .map_err(|err| format!("Failed to decode base64 image: {err}"))?;
 
     Ok(output_image_bytes)
 }
