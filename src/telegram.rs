@@ -24,7 +24,7 @@ enum MediaType {
 
 pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> {
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
-    let update = utils::convert_input_to_json(req).await?;
+    let update = utils::convert_input_to_json(req).await.unwrap();
 
     // Match the update type
     match update.kind {
@@ -71,12 +71,16 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                             info!("Failed to generate image: {}", e);
                             bot.send_message(
                                 message.chat.id,
-                                "Failed to generate image. Please try again later.",
+                                format!(
+                                    "Failed to generate image. Please try again later. ({})",
+                                    e
+                                ),
                             )
-                            .await?;
+                            .await
+                            .unwrap();
                             return Ok(Response::builder()
                                 .status(200)
-                                .body(Body::Text("Failed to generate image".into()))
+                                .body(Body::Text(format!("Failed to generate image: {}", e)))
                                 .unwrap());
                         }
                     };
@@ -92,12 +96,12 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         info!("Failed to send image: {}", e);
                         bot.send_message(
                             message.chat.id,
-                            "Failed to send image. Please try again later.",
+                            format!("Failed to send image. Please try again later. ({})", e),
                         )
                         .await?;
                         return Ok(Response::builder()
                             .status(200)
-                            .body(Body::Text("Failed to send image".into()))
+                            .body(Body::Text(format!("Failed to send image: {}", e)))
                             .unwrap());
                     }
 
@@ -111,6 +115,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             // Check if the message is a voice or video message
             if message.voice().is_none() && message.video_note().is_none() {
                 info!("Not a voice or video message");
+                // don't send a message to the user
                 return Ok(Response::builder()
                     .status(200)
                     .body(Body::Text("Not a voice or video message".into()))
@@ -125,6 +130,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 MediaType::VideoNote
             } else {
                 info!("Message is not a voice or video message");
+                // don't send a message to the user
                 return Ok(Response::builder()
                     .status(200)
                     .body(Body::Text("Message is not a voice or video message".into()))
@@ -182,12 +188,15 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     info!("Failed to transcribe audio: {}", e);
                     bot.send_message(
                         message.chat.id,
-                        "Failed to transcribe audio. Please try again later.",
+                        format!(
+                            "Failed to transcribe audio. Please try again later. ({})",
+                            e
+                        ),
                     )
                     .await?;
                     return Ok(Response::builder()
                         .status(200)
-                        .body(Body::Text("Failed to transcribe audio".into()))
+                        .body(Body::Text(format!("Failed to transcribe audio: {}", e)))
                         .unwrap());
                 }
             };

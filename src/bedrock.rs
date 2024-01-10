@@ -2,10 +2,9 @@ use aws_sdk_bedrockruntime as bedrockruntime;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use bedrockruntime::primitives::Blob;
 use serde_json::json;
-use std::error::Error;
 
-pub async fn generate_image(prompt: String) -> Result<Vec<u8>, Box<dyn Error>> {
-    let config = aws_config::from_env().region("us-east-1").load().await;
+pub async fn generate_image(prompt: String) -> Result<Vec<u8>, &'static str> {
+    let config = aws_config::from_env().region("us-east-1").load().await; // most models are in us-east-1
     let client = aws_sdk_bedrockruntime::Client::new(&config);
 
     let input = json!({
