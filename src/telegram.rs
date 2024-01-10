@@ -65,14 +65,41 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     );
 
                     // Generate the image
-                    let image = bedrock::generate_image(prompt).await.unwrap();
+                    let image = match bedrock::generate_image(prompt).await {
+                        Ok(image) => image,
+                        Err(e) => {
+                            info!("Failed to generate image: {}", e);
+                            bot.send_message(
+                                message.chat.id,
+                                "Failed to generate image. Please try again later.",
+                            )
+                            .await?;
+                            return Ok(Response::builder()
+                                .status(200)
+                                .body(Body::Text("Failed to generate image".into()))
+                                .unwrap());
+                        }
+                    };
                     let image = teloxide::types::InputFile::memory(image);
 
                     // Send the image to the user
-                    bot.send_photo(message.chat.id, image)
+                    if let Err(e) = bot
+                        .send_photo(message.chat.id, image)
                         .reply_to_message_id(message.id)
                         .allow_sending_without_reply(true)
+                        .await
+                    {
+                        info!("Failed to send image: {}", e);
+                        bot.send_message(
+                            message.chat.id,
+                            "Failed to send image. Please try again later.",
+                        )
                         .await?;
+                        return Ok(Response::builder()
+                            .status(200)
+                            .body(Body::Text("Failed to send image".into()))
+                            .unwrap());
+                    }
 
                     return Ok(Response::builder()
                         .status(200)
@@ -80,7 +107,8 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         .unwrap());
                 }
             }
-            // Check if the message is a voice message
+
+            // Check if the message is a voice or video message
             if message.voice().is_none() && message.video_note().is_none() {
                 info!("Not a voice or video message");
                 return Ok(Response::builder()
@@ -92,16 +120,28 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             let media_type = if message.voice().is_some() {
                 info!("Received voice message");
                 MediaType::Voice
-            } else {
+            } else if message.video_note().is_some() {
                 info!("Received video message");
                 MediaType::VideoNote
+            } else {
+                info!("Message is not a voice or video message");
+                return Ok(Response::builder()
+                    .status(200)
+                    .body(Body::Text("Message is not a voice or video message".into()))
+                    .unwrap());
             };
 
             // Get the voice duration
-            let duration = if message.voice().is_some() {
-                message.voice().unwrap().duration
+            let duration = if let Some(voice) = message.voice() {
+                voice.duration
+            } else if let Some(video_note) = message.video_note() {
+                video_note.duration
             } else {
-                message.video_note().unwrap().duration
+                info!("Message is not a voice or video message");
+                return Ok(Response::builder()
+                    .status(200)
+                    .body(Body::Text("Message is not a voice or video message".into()))
+                    .unwrap());
             };
 
             // Check if voice message is longer than 1 minute
@@ -110,8 +150,8 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 bot.send_message(
                     message.chat.id,
                     format!(
-                        "The audio message is too long. Maximum duration is {MINUTE_LIMIT} minutes."
-                    ),
+            "The audio message is too long. Maximum duration is {MINUTE_LIMIT} minutes."
+        ),
                 )
                 .await?;
                 return Ok(Response::builder()
@@ -136,26 +176,54 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             bot.download_file(&file_path, &mut buffer).await?;
 
             // Send file to OpenAI Whisper for transcription
-            info!("Sending file to OpenAI Whisper for transcription");
-            let mut text = openai::transcribe_audio(buffer).await?;
+            let mut text = match openai::transcribe_audio(buffer).await {
+                Ok(text) => text,
+                Err(e) => {
+                    info!("Failed to transcribe audio: {}", e);
+                    bot.send_message(
+                        message.chat.id,
+                        "Failed to transcribe audio. Please try again later.",
+                    )
+                    .await?;
+                    return Ok(Response::builder()
+                        .status(200)
+                        .body(Body::Text("Failed to transcribe audio".into()))
+                        .unwrap());
+                }
+            };
 
             if text.is_empty() {
                 text = "<no text>".to_string();
             }
 
             // Send text to user
-            bot.send_message(message.chat.id, text)
+            if let Err(e) = bot
+                .send_message(message.chat.id, text)
                 .reply_to_message_id(message.id)
                 .disable_web_page_preview(true)
                 .disable_notification(true)
                 .allow_sending_without_reply(true)
-                .await?;
-        }
-        _ => {}
-    }
+                .await
+            {
+                info!("Failed to send message: {}", e);
+                return Ok(Response::builder()
+                    .status(200)
+                    .body(Body::Text("Failed to send message".into()))
+                    .unwrap());
+            }
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+            Ok(Response::builder()
+                .status(200)
+                .body(Body::Text("OK".into()))
+                .unwrap())
+        }
+        // If the update is not a message
+        _ => {
+            info!("Update is not a message");
+            Ok(Response::builder()
+                .status(200)
+                .body(Body::Text("Update is not a message".into()))
+                .unwrap())
+        }
+    }
 }
