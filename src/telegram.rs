@@ -37,6 +37,11 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     // Check if the user is the owner
                     if message.from().unwrap().id != UserId(TELEGRAM_OWNER_ID) {
                         info!("User is not the owner");
+                        // send a message to the user
+                        bot.send_message(
+                            message.chat.id,
+                            "You are not the owner of this bot. This feature is only available to the owner of the bot."
+                        ).reply_to_message_id(message.id).await?;
                         return Ok(Response::builder()
                             .status(200)
                             .body(Body::Text("You are not the owner".into()))
@@ -53,16 +58,19 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     // This will be removed in the near future.
                     // Actually this is kinda useless since only the owner can use this feature
                     let user = message.from().unwrap();
-                    let _ = bot.send_message(
-                        UserId(TELEGRAM_OWNER_ID),
-                        format!(
-                            "User {} ({} {}) requested an image with prompt: {}",
-                            user.id,
-                            user.first_name,
-                            user.last_name.clone().unwrap_or_default(),
-                            prompt
-                        ),
-                    );
+                    let _ = bot
+                        .send_message(
+                            UserId(TELEGRAM_OWNER_ID),
+                            format!(
+                                "User {} ({} {}) requested an image with prompt: {}",
+                                user.id,
+                                user.first_name,
+                                user.last_name.clone().unwrap_or_default(),
+                                prompt
+                            ),
+                        )
+                        .reply_to_message_id(message.id)
+                        .await;
 
                     // Generate the image
                     let image = match bedrock::generate_image(prompt).await {
@@ -76,6 +84,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                                     e
                                 ),
                             )
+                            .reply_to_message_id(message.id)
                             .await
                             .unwrap();
                             return Ok(Response::builder()
@@ -98,6 +107,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                             message.chat.id,
                             format!("Failed to send image. Please try again later. ({})", e),
                         )
+                        .reply_to_message_id(message.id)
                         .await?;
                         return Ok(Response::builder()
                             .status(200)
@@ -159,6 +169,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             "The audio message is too long. Maximum duration is {MINUTE_LIMIT} minutes."
         ),
                 )
+                .reply_to_message_id(message.id)
                 .await?;
                 return Ok(Response::builder()
                     .status(200)
@@ -193,6 +204,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                             e
                         ),
                     )
+                    .reply_to_message_id(message.id)
                     .await?;
                     return Ok(Response::builder()
                         .status(200)
