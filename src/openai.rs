@@ -1,9 +1,9 @@
-use lambda_http::Error;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use std::env;
+use tracing::error;
 
-pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
+pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, String> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
@@ -33,17 +33,41 @@ pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
         .multipart(form)
         .headers(headers)
         .send()
-        .await?;
+        .await
+        .map_err(|err| format!("Failed to send request to OpenAI: {}", err))?;
+
+    // Check if OpenAI returned an error
+    let status = res.status();
+    if !status.is_success() {
+        let json = res
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|err| format!("Failed to parse OpenAI error response: {}", err))?;
+        error!("OpenAI returned an error: {:?}", json);
+        return Err(format!("OpenAI returned an error: {:?}", json));
+    }
 
     // Extract text from OpenAI response
     // Response is in verbose_json
-    let json = res.json::<serde_json::Value>().await?;
+    let json = res
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("Failed to parse OpenAI response: {}", err))?;
 
     // Get the text from the response
-    let text = json["text"].as_str().unwrap();
-    let language = json["language"].as_str().unwrap();
+    let text = match json["text"].as_str() {
+        Some(text) => text.to_string(),
+        None => "No text found".to_string(),
+    };
 
-    let output = format!("{text}\n(Language: {language})");
+    // Get the language from the response
+    let language = match json["language"].as_str() {
+        Some(language) => language.to_string(),
+        None => "No language found".to_string(),
+    };
+
+    // Format the output
+    let output = format!("{}\n(Language: {})", text, language);
 
     Ok(output)
 }

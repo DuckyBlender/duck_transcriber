@@ -79,9 +79,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                             info!("Failed to generate image: {}", e);
                             bot.send_message(
                                 message.chat.id,
-                                format!(
-                                    "Failed to generate image. Please try again later. ({e})"
-                                ),
+                                format!("Failed to generate image. Please try again later. ({e})"),
                             )
                             .reply_to_message_id(message.id)
                             .await
@@ -199,9 +197,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     info!("Failed to transcribe audio: {}", e);
                     bot.send_message(
                         message.chat.id,
-                        format!(
-                            "Failed to transcribe audio. Please try again later. ({e})"
-                        ),
+                        format!("Failed to transcribe audio. Please try again later. ({e})"),
                     )
                     .reply_to_message_id(message.id)
                     .await?;
