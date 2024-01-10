@@ -184,6 +184,14 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             } else {
                 message.video_note().unwrap().file.id.clone()
             };
+
+            let voice_type = message.voice().unwrap().mime_type.clone().unwrap();
+            if let Some(voice) = message.voice() {
+                info!(
+                    "The audio file type is: {}",
+                    voice.mime_type.clone().unwrap()
+                );
+            }
             let file = bot.get_file(voice_id).await?;
             let file_path = file.path.clone();
             let mut buffer = Vec::new();
@@ -191,7 +199,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             bot.download_file(&file_path, &mut buffer).await?;
 
             // Send file to OpenAI Whisper for transcription
-            let mut text = match openai::transcribe_audio(buffer).await {
+            let mut text = match openai::transcribe_audio(buffer, voice_type).await {
                 Ok(text) => text,
                 Err(e) => {
                     info!("Failed to transcribe audio: {}", e);

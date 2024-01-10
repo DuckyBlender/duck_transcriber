@@ -1,9 +1,10 @@
+use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use std::env;
 use tracing::error;
 
-pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, String> {
+pub async fn transcribe_audio(buffer: Vec<u8>, voice_type: Mime) -> Result<String, String> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
@@ -16,10 +17,13 @@ pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, String> {
         .unwrap(),
     );
 
+    let file_name = voice_type.subtype().to_string(); // "mpeg"
+    let mime_str = voice_type.to_string(); // "audio/mpeg"
+
     // Create multipart request
     let part = reqwest::multipart::Part::bytes(buffer)
-        .file_name("audio.ogg")
-        .mime_str("audio/ogg")
+        .file_name(format!("audio.{}", file_name))
+        .mime_str(mime_str.as_str())
         .unwrap();
     let form = reqwest::multipart::Form::new()
         .text("model", "whisper-1")

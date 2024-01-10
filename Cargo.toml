@@ -34,6 +34,7 @@ teloxide = "0.12.2"
 aws-sdk-bedrockruntime = "1.10.0"
 base64 = "0.21.6"
 rand = "0.8.5"
+mime = "0.3.17"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
