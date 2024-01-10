@@ -1,5 +1,6 @@
 use lambda_http::{Body, Error, Request, Response};
 use teloxide::payloads::SendPhotoSetters;
+use teloxide::types::UserId;
 
 use std::env;
 use teloxide::types::ChatAction::Typing;
@@ -13,6 +14,7 @@ use crate::openai;
 use crate::utils;
 
 const MINUTE_LIMIT: u32 = 5;
+const TELEGRAM_OWNER_ID: u64 = 5337682436;
 
 #[derive(PartialEq)]
 enum MediaType {
@@ -36,6 +38,21 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     let prompt = text.replace("/img", "").trim().to_string();
                     // Send "typing" action to user
                     bot.send_chat_action(message.chat.id, Typing).await?;
+
+                    // Also send a DM to the owner of the bot
+                    // This is extremely temporary and is only used for preventing abuse.
+                    // This will be removed in the near future.
+                    let user = message.from().unwrap();
+                    let _ = bot.send_message(
+                        UserId(TELEGRAM_OWNER_ID),
+                        format!(
+                            "User {} ({} {}) requested an image with prompt: {}",
+                            user.id,
+                            user.first_name,
+                            user.last_name.clone().unwrap_or_default(),
+                            prompt
+                        ),
+                    );
 
                     // Generate the image
                     let image = bedrock::generate_image(prompt).await.unwrap();

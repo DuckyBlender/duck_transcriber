@@ -2,8 +2,8 @@ use aws_sdk_bedrockruntime as bedrockruntime;
 
 // Import the base64 crate Engine trait anonymously so we can
 // call its methods without adding to the namespace.
-use base64::engine::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::engine::Engine as _;
 
 use bedrockruntime::primitives::Blob;
 use serde_json::json;
@@ -25,7 +25,7 @@ pub async fn generate_image(prompt: String) -> Result<Vec<u8>, Box<dyn Error>> {
             "height": 512,
             "width": 512,
             //"cfgScale": 8.0,
-            //"seed": 0
+            "seed": rand::random::<i32>().abs(), // 0-2147483647
         }
     });
 
