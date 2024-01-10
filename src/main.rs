@@ -1,10 +1,10 @@
 use lambda_http::{run, service_fn, Error};
 use tracing_subscriber::fmt;
 
+mod bedrock;
 mod openai;
 mod telegram;
 mod utils;
-mod bedrock;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

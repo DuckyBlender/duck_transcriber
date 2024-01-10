@@ -1,15 +1,12 @@
 use lambda_http::{Body, Error, Request, Response};
+use teloxide::payloads::SendPhotoSetters;
 
 use std::env;
+use teloxide::types::ChatAction::Typing;
 use teloxide::{
-    net::Download,
-    payloads::SendMessageSetters,
-    requests::Requester,
-    types::UpdateKind,
-    Bot,
+    net::Download, payloads::SendMessageSetters, requests::Requester, types::UpdateKind, Bot,
 };
 use tracing::info;
-use teloxide::types::ChatAction::Typing;
 
 use crate::bedrock;
 use crate::openai;
@@ -38,10 +35,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     // Get the prompt
                     let prompt = text.replace("/img", "").trim().to_string();
                     // Send "typing" action to user
-                    bot.send_chat_action(message.chat.id, Typing)
-                        .await?;
-
-                    
+                    bot.send_chat_action(message.chat.id, Typing).await?;
 
                     // Generate the image
                     let image = bedrock::generate_image(prompt).await.unwrap();
@@ -49,7 +43,10 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
 
                     // Send the image to the user
                     bot.send_photo(message.chat.id, image)
+                        .reply_to_message_id(message.id)
+                        .allow_sending_without_reply(true)
                         .await?;
+
                     return Ok(Response::builder()
                         .status(200)
                         .body(Body::Text("Image sent".into()))
@@ -73,7 +70,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 MediaType::VideoNote
             };
 
-            // Get the voice duration 
+            // Get the voice duration
             let duration = if message.voice().is_some() {
                 message.voice().unwrap().duration
             } else {
@@ -98,8 +95,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
 
             // Now that we know that the voice message is shorter then x minutes, download it and send it to openai
             // Send "typing" action to user
-            bot.send_chat_action(message.chat.id, Typing)
-                .await?;
+            bot.send_chat_action(message.chat.id, Typing).await?;
 
             let voice_id = if media_type == MediaType::Voice {
                 message.voice().unwrap().file.id.clone()

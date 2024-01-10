@@ -1,7 +1,7 @@
-use lambda_http::{http::HeaderMap, Error};
+use lambda_http::Error;
+use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use std::env;
-
 
 pub async fn transcribe_audio(buffer: Vec<u8>) -> Result<String, Error> {
     // Set OpenAI API headers
