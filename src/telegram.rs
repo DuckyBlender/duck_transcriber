@@ -34,6 +34,15 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
             if let Some(text) = message.text() {
                 // Check if the text starts with /img
                 if text.starts_with("/img") {
+                    // Check if the user is the owner
+                    if message.from().unwrap().id != UserId(TELEGRAM_OWNER_ID) {
+                        info!("User is not the owner");
+                        return Ok(Response::builder()
+                            .status(200)
+                            .body(Body::Text("You are not the owner".into()))
+                            .unwrap());
+                    }
+
                     // Get the prompt
                     let prompt = text.replace("/img", "").trim().to_string();
                     // Send "typing" action to user
@@ -42,6 +51,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     // Also send a DM to the owner of the bot
                     // This is extremely temporary and is only used for preventing abuse.
                     // This will be removed in the near future.
+                    // Actually this is kinda useless since only the owner can use this feature
                     let user = message.from().unwrap();
                     let _ = bot.send_message(
                         UserId(TELEGRAM_OWNER_ID),
