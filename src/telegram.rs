@@ -1,4 +1,5 @@
 use lambda_http::{Body, Error, Request, Response};
+use mime::Mime;
 use teloxide::payloads::SendPhotoSetters;
 use teloxide::types::UserId;
 
@@ -185,13 +186,17 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 message.video_note().unwrap().file.id.clone()
             };
 
-            let voice_type = message.voice().unwrap().mime_type.clone().unwrap();
-            if let Some(voice) = message.voice() {
-                info!(
-                    "The audio file type is: {}",
-                    voice.mime_type.clone().unwrap()
-                );
-            }
+            // Get the voice mime type
+            let default_mime: Mime = "audio/ogg".parse().unwrap();
+            let voice_type: Mime = match message.voice() {
+                Some(voice) => {
+                    let voice_type = voice.mime_type.clone().unwrap_or(default_mime);
+                    info!("Voice mime type: {}", voice_type.to_string().to_lowercase());
+                    voice_type
+                }
+                None => default_mime,
+            };
+
             let file = bot.get_file(voice_id).await?;
             let file_path = file.path.clone();
             let mut buffer = Vec::new();
