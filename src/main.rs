@@ -27,7 +27,7 @@ async fn main() -> Result<(), Error> {
     let port = env::var("DB_PORT").expect("DB_PORT not set");
     let pool = MySqlPoolOptions::new()
         .max_connections(5)
-        .connect(format!("mysql://{user}:{pass}@{url}:{port}").as_str())
+        .connect(format!("mysql://{user}:{pass}@{url}:{port}/transcriber").as_str())
         .await
         .expect("Failed to connect to MySQL DB");
 

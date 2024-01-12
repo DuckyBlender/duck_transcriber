@@ -9,7 +9,7 @@ use crate::utils::is_owner;
 pub async fn handle_sql_command(
     bot: &Bot,
     message: &Message,
-    command: &str,
+    command: String,
     pool: &Pool<MySql>,
 ) -> Result<()> {
     // Check if the user is an admin
