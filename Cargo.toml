@@ -1,5 +1,6 @@
 [package]
-name = "duck_transcriber"
+# name = "duck_transcriber"
+name = "testTranscriberFunction"
 version = "0.1.0"
 edition = "2021"
 
@@ -15,22 +16,15 @@ edition = "2021"
 # and it will keep the alphabetic ordering for you.
 
 [dependencies]
+# aws-config = { version = "1.1", features = ["behavior-version-latest"] }
 lambda_http = "0.8.3"
+sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls", "mysql" ] }
 lambda_runtime = "0.8.3"
-reqwest = { version = "0.11.22", features = [
-    "multipart",
-    "json",
-    "native-tls-vendored",
-], default-features = false }
-serde_json = "1.0.108"
 tokio = { version = "1", features = ["macros"] }
 tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "fmt",
-] }
-teloxide = "0.12.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
-timeout = 30      # Function's execution timeout
+timeout = 10      # Function's execution timeout
 env_file = ".env" # File to load environment variables from
