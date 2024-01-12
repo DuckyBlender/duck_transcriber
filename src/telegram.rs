@@ -1,20 +1,20 @@
 use lambda_http::{Body, Error, Request, Response};
+use sqlx::{MySql, Pool};
 
 use std::env;
+use std::sync::Arc;
+use teloxide::types::ChatAction::Typing;
 use teloxide::{
-    net::Download,
-    payloads::SendMessageSetters,
-    requests::Requester,
-    types::UpdateKind,
-    Bot,
+    net::Download, payloads::SendMessageSetters, requests::Requester, types::UpdateKind, Bot,
 };
 use tracing::info;
-use teloxide::types::ChatAction::Typing;
 
 use crate::openai;
+use crate::sql::handle_sql_command;
 use crate::utils;
 
-const MINUTE_LIMIT: u32 = 5;
+pub const MINUTE_LIMIT: u32 = 5;
+pub const TELEGRAM_OWNER_ID: u64 = 5337682436;
 
 #[derive(PartialEq)]
 enum MediaType {
@@ -22,7 +22,10 @@ enum MediaType {
     VideoNote,
 }
 
-pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> {
+pub async fn handle_telegram_request(
+    req: Request,
+    pool: Arc<Pool<MySql>>,
+) -> Result<Response<Body>, Error> {
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
     let update = utils::convert_input_to_json(req).await?;
 
@@ -30,6 +33,23 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
     match update.kind {
         // If the update is a message
         UpdateKind::Message(message) => {
+            // Check if the message is a /sql command
+            if let Some(text) = message.text() {
+                if text.starts_with("/sql ") {
+                    // Extract the SQL command from the message
+                    let sql_command = text[5..].trim();
+                    // Call the handle_sql_command function with the database pool, message, and the SQL command
+                    return Ok(handle_sql_command(&bot, &message, sql_command, &pool)
+                        .await
+                        .map(|_| {
+                            Response::builder()
+                                .status(200)
+                                .body(Body::Text("".into()))
+                                .unwrap()
+                        })?);
+                }
+            }
+
             // Check if the message is a voice message
             if message.voice().is_none() && message.video_note().is_none() {
                 info!("Not a voice or video message");
@@ -47,7 +67,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 MediaType::VideoNote
             };
 
-            // Get the voice duration 
+            // Get the voice duration
             let duration = if message.voice().is_some() {
                 message.voice().unwrap().duration
             } else {
@@ -72,8 +92,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
 
             // Now that we know that the voice message is shorter then x minutes, download it and send it to openai
             // Send "typing" action to user
-            bot.send_chat_action(message.chat.id, Typing)
-                .await?;
+            bot.send_chat_action(message.chat.id, Typing).await?;
 
             let voice_id = if media_type == MediaType::Voice {
                 message.voice().unwrap().file.id.clone()
