@@ -29,6 +29,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
 ] }
 teloxide = "0.12.2"
+mime = "0.3.17"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
