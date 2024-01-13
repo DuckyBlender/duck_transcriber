@@ -1,6 +1,5 @@
 [package]
-# name = "duck_transcriber"
-name = "testTranscriberFunction"
+name = "duck_transcriber"
 version = "0.1.0"
 edition = "2021"
 
@@ -36,9 +35,9 @@ reqwest = { version = "0.11.22", features = [
     # "rustls-tls",
 ], default-features = false }
 serde_json = "1.0.111"
-anyhow = "1.0.79" # still not convinced i need to use this
+# anyhow = "1.0.79" # still not convinced i need to use this
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
-timeout = 10      # Function's execution timeout
+timeout = 30      # Function's execution timeout
 env_file = ".env" # File to load environment variables from

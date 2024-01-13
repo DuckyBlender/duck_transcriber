@@ -2,9 +2,11 @@ use lambda_http::{Body, Error, Request, Response};
 use mime::Mime;
 use sqlx::{MySql, Pool};
 
+use sqlx::Row;
 use std::env;
 use std::sync::Arc;
 use teloxide::types::ChatAction::Typing;
+use teloxide::types::ParseMode::MarkdownV2;
 use teloxide::{
     net::Download, payloads::SendMessageSetters, requests::Requester, types::UpdateKind, Bot,
 };
@@ -12,10 +14,10 @@ use tracing::info;
 
 use crate::openai;
 use crate::sql::handle_sql_command;
-use crate::utils;
+use crate::utils::{self, HELP_MESSAGE};
+use crate::utils::{parse_argument, SqlCommands};
 
 pub const MINUTE_LIMIT: u32 = 5;
-pub const TELEGRAM_OWNER_ID: u64 = 5337682436;
 
 #[derive(PartialEq)]
 enum MediaType {
@@ -27,30 +29,74 @@ pub async fn handle_telegram_request(
     req: Request,
     pool: Arc<Pool<MySql>>,
 ) -> Result<Response<Body>, Error> {
-    // print out the request
-    info!("=== REQUEST ===\n{:?}\n=== REQUEST END ===", req);
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
     let update = utils::convert_input_to_json(req).await.unwrap();
-    info!("=== JSON ===\n{:?}\n JSON END ===", update);
 
     // Match the update type
     match update.kind {
         // If the update is a message
         UpdateKind::Message(message) => {
+            // Check if the message is a command
+            // Available commands:
+            // /help - Show help message
+            // /debug - Enable or disable debug information
+            // /remove - Enable or disable removing the original voice message after transcription
+            // /gpt - Enable or disable enhancing the transcribed text with GPT (currently disabled)
             // Check if the message is a /sql command
             if let Some(text) = message.text() {
-                if text.starts_with("/sql ") {
-                    // Extract the SQL command from the message
-                    let sql_command = text.replace("/sql ", "");
-                    // Call the handle_sql_command function with the database pool, message, and the SQL command
-                    return Ok(handle_sql_command(&bot, &message, sql_command, &pool)
-                        .await
-                        .map(|_| {
-                            Response::builder()
-                                .status(200)
-                                .body(Body::Text("".into()))
-                                .unwrap()
-                        })?);
+                let command = text.split_whitespace().next().unwrap_or("");
+                info!("Received command: {}", command);
+                match command {
+                    // /help or /start
+                    "/help" | "/start" => {
+                        // Just send a message to the user
+                        bot.send_message(message.chat.id, HELP_MESSAGE.to_string())
+                            .parse_mode(MarkdownV2)
+                            .reply_to_message_id(message.id)
+                            .await?;
+                    }
+                    "/debug" => {
+                        // Handle debug command
+                        let state = parse_argument(text);
+                        let debug_info = handle_sql_command(
+                            &pool,
+                            SqlCommands::DebugInfo(state, message.chat.id),
+                        )
+                        .await?;
+                        // Send a message to the user
+                        bot.send_message(
+                            message.chat.id,
+                            format!("Set debug_info to {}", debug_info),
+                        )
+                        .reply_to_message_id(message.id)
+                        .await?;
+                    }
+                    "/remove" => {
+                        // Handle remove command
+                        let state = parse_argument(text);
+                        let delete_voice = handle_sql_command(
+                            &pool,
+                            SqlCommands::RemoveOriginalVoice(state, message.chat.id),
+                        )
+                        .await?;
+                        // Send a message to the user
+                        bot.send_message(
+                            message.chat.id,
+                            format!("Set delete_voice to {}", delete_voice),
+                        )
+                        .reply_to_message_id(message.id)
+                        .await?;
+                    }
+                    "/gpt_enhance" => {
+                        // This command is currently disabled
+                        bot.send_message(message.chat.id, "This command is currently disabled")
+                            .reply_to_message_id(message.id)
+                            .await?;
+                    }
+                    _ => {
+                        // Do nothing
+                        info!("Command not recognized");
+                    }
                 }
             }
 
@@ -188,4 +234,23 @@ pub async fn handle_telegram_request(
                 .unwrap())
         }
     }
+}
+
+// Define a new function to get the group settings
+async fn get_group_settings(pool: &Pool<MySql>, group_id: i64) -> Result<(), sqlx::Error> {
+    // Fetch the settings from the database using the group_id
+    let settings = sqlx::query(
+        "SELECT debug_info, delete_voice, gpt_enhance FROM transcriber WHERE chat_id = ?",
+    )
+    .bind(group_id)
+    .fetch_one(pool)
+    .await?;
+
+    // Get the settings
+    let debug_info: bool = settings.get("debug_info");
+    let delete_voice: bool = settings.get("delete_voice");
+    let gpt_enhance: bool = settings.get("gpt_enhance");
+
+    // Return the settings
+    todo!();
 }

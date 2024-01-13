@@ -3,6 +3,7 @@ use std::{env, sync::Arc};
 use lambda_http::{run, service_fn, Error};
 use sqlx::mysql::MySqlPoolOptions;
 use telegram::handle_telegram_request;
+use tracing::info;
 use tracing_subscriber::fmt;
 
 mod openai;
@@ -19,6 +20,7 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
+    info!("Connecting to MySQL DB");
     // Initialize the database connection pool
     // This needs to be done here for performance reasons
     let user = env::var("DB_USER").expect("DB_USER not set");
@@ -30,6 +32,7 @@ async fn main() -> Result<(), Error> {
         .connect(format!("mysql://{user}:{pass}@{url}:{port}/transcriber").as_str())
         .await
         .expect("Failed to connect to MySQL DB");
+    info!("Connected to MySQL DB");
 
     // Arc is used to share the pool across threads
     let pool = Arc::new(pool);
