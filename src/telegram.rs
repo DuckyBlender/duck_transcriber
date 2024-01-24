@@ -62,6 +62,20 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                                 .trim();
                         }
 
+                        // If the text is empty, send a message to the user
+                        if tts_text.is_empty() {
+                            bot.send_message(
+                                message.chat.id,
+                                "Please provide some text to generate a voice message.",
+                            )
+                            .reply_to_message_id(message.id)
+                            .await?;
+                            return Ok(Response::builder()
+                                .status(200)
+                                .body(Body::Text("No text provided".into()))
+                                .unwrap());
+                        }
+
                         // Send "recording voice message" action to user
                         bot.send_chat_action(message.chat.id, RecordVoice).await?;
 
@@ -99,6 +113,9 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         if let Some(reply) = message.reply_to_message() {
                             if let Some(voice) = reply.voice() {
                                 // TODO: Check if this is an audio note
+
+                                // Send typing indicator
+                                bot.send_chat_action(message.chat.id, Typing).await?;
 
                                 // Get the file_id of the voice message
                                 let file_id = &voice.file.id;
@@ -163,12 +180,25 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                             .reply_to_message_id(message.id)
                             .await?;
                         }
-                    }
+                    } else if text.starts_with("/help")
+                        || text.starts_with("/help@duck_transcriber_bot")
+                    {
+                        // Send help message
+                        bot.send_message(
+                            message.chat.id,
+                            "Welcome to Duck Transcriber! Here are the available commands:
+/tts <text> - Generate a voice message from text (reply to a message to use that text)
+/english - Translate a voice message to English (reply to a voice message to use this command)",
+                        )
+                        .reply_to_message_id(message.id)
+                        .await?;
+                    };
+
                     info!("Unrecognized command");
-                    return Ok(Response::builder()
+                    Ok(Response::builder()
                         .status(200)
                         .body(Body::Text("Received unrecognized command".into()))
-                        .unwrap());
+                        .unwrap())
                 }
                 MessageInfo { is_voice: true, .. } => {
                     // Get the voice duration
@@ -286,10 +316,10 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 }
                 _ => {
                     info!("Received unsupported message");
-                    return Ok(Response::builder()
+                    Ok(Response::builder()
                         .status(200)
                         .body(Body::Text("Received unsupported message".into()))
-                        .unwrap());
+                        .unwrap())
                 }
             }
         }

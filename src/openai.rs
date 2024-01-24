@@ -51,15 +51,10 @@ pub async fn transcribe_audio(
         .text("response_format", "verbose_json")
         .part("file", part);
 
-    let url_end;
-    match transcribe_type {
-        TranscribeType::Transcribe => {
-            url_end = "transcriptions";
-        }
-        TranscribeType::Translate => {
-            url_end = "translations";
-        }
-    }
+    let url_end = match transcribe_type {
+        TranscribeType::Transcribe => "transcriptions",
+        TranscribeType::Translate => "translations",
+    };
 
     // Send file to OpenAI Whisper for transcription
     let client = reqwest::Client::new();
@@ -148,5 +143,5 @@ pub async fn tts(prompt: String, voice: Voice) -> Result<Vec<u8>, String> {
         .await
         .map_err(|err| format!("Failed to parse OpenAI response: {}", err))?;
 
-    return Ok(audio.to_vec());
+    Ok(audio.to_vec())
 }
