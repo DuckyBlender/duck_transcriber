@@ -1,10 +1,31 @@
 use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
+use serde_json::json;
 use std::env;
 use tracing::error;
 
-pub async fn transcribe_audio(buffer: Vec<u8>, voice_type: Mime) -> Result<String, String> {
+pub enum TranscribeType {
+    Transcribe,
+    Translate,
+}
+
+// dont warn about unused variants
+#[allow(dead_code)]
+pub enum Voice {
+    Alloy,
+    Echo,
+    Fable,
+    Onyx,
+    Nova,
+    Shimmer,
+}
+
+pub async fn transcribe_audio(
+    buffer: Vec<u8>,
+    voice_type: Mime,
+    transcribe_type: TranscribeType,
+) -> Result<String, String> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
@@ -30,10 +51,20 @@ pub async fn transcribe_audio(buffer: Vec<u8>, voice_type: Mime) -> Result<Strin
         .text("response_format", "verbose_json")
         .part("file", part);
 
+    let url_end;
+    match transcribe_type {
+        TranscribeType::Transcribe => {
+            url_end = "transcriptions";
+        }
+        TranscribeType::Translate => {
+            url_end = "translations";
+        }
+    }
+
     // Send file to OpenAI Whisper for transcription
     let client = reqwest::Client::new();
     let res = client
-        .post("https://api.openai.com/v1/audio/transcriptions")
+        .post(format!("https://api.openai.com/v1/audio/{}", url_end))
         .multipart(form)
         .headers(headers)
         .send()
@@ -74,4 +105,48 @@ pub async fn transcribe_audio(buffer: Vec<u8>, voice_type: Mime) -> Result<Strin
     // let output = format!("{}\n(Language: {})", text, language);
 
     Ok(text)
+}
+
+// this returns audio bytes
+pub async fn tts(prompt: String, voice: Voice) -> Result<Vec<u8>, String> {
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://api.openai.com/v1/audio/speech")
+        .header(
+            "Authorization",
+            format!(
+                "Bearer {}",
+                env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found")
+            ),
+        )
+        .json(&json!({
+            "model": "tts-1",
+            "input": prompt,
+            "voice": match voice {
+                Voice::Alloy => "alloy",
+                Voice::Echo => "echo",
+                Voice::Fable => "fable",
+                Voice::Onyx => "onyx",
+                Voice::Nova => "nova",
+                Voice::Shimmer => "shimmer",
+            },
+        }))
+        .send()
+        .await
+        .map_err(|err| format!("Failed to send request to OpenAI: {}", err))?;
+
+    // Check if OpenAI returned an error
+    let status = res.status();
+    if !status.is_success() {
+        //    return an error
+        return Err(format!("OpenAI returned an error: {:?}", status));
+    }
+
+    // Return the audio bytes
+    let audio = res
+        .bytes()
+        .await
+        .map_err(|err| format!("Failed to parse OpenAI response: {}", err))?;
+
+    return Ok(audio.to_vec());
 }

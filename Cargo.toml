@@ -33,5 +33,5 @@ mime = "0.3.17"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
-timeout = 30      # Function's execution timeout
+timeout = 60      # Function's execution timeout
 env_file = ".env" # File to load environment variables from
