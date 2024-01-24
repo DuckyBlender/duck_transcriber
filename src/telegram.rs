@@ -8,13 +8,11 @@ use teloxide::payloads::SendVoiceSetters;
 use teloxide::types::ChatAction::RecordVoice;
 use teloxide::types::ChatAction::Typing;
 use teloxide::types::InputFile;
+use teloxide::types::ParseMode::MarkdownV2;
 use teloxide::{
     net::Download, payloads::SendMessageSetters, requests::Requester, types::UpdateKind, Bot,
 };
 use tracing::{error, info};
-
-const MINUTE_LIMIT: u32 = 5;
-// const TELEGRAM_OWNER_ID: u64 = 5337682436;
 
 pub struct MessageInfo {
     pub is_text: bool,
@@ -112,13 +110,14 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         // USE THE AUDIO FROM THE REPLY
                         if let Some(reply) = message.reply_to_message() {
                             if let Some(voice) = reply.voice() {
-                                // TODO: Check if this is an audio note
-
                                 // Send typing indicator
                                 bot.send_chat_action(message.chat.id, Typing).await?;
 
                                 // Get the file_id of the voice message
                                 let file_id = &voice.file.id;
+
+                                // Length of the voice message
+                                let duration = voice.duration;
 
                                 // Download the voice message
                                 let file = bot.get_file(file_id).await?;
@@ -135,9 +134,68 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                                     .unwrap_or("audio/ogg".parse().unwrap());
 
                                 // Transcribe the voice message
-                                let translation =
-                                    transcribe_audio(buffer, voice_type, TranscribeType::Translate)
-                                        .await;
+                                let translation = transcribe_audio(
+                                    buffer,
+                                    voice_type,
+                                    TranscribeType::Translate,
+                                    duration,
+                                )
+                                .await;
+
+                                match translation {
+                                    Ok(translation) => {
+                                        // Send the translation to the user
+                                        bot.send_message(message.chat.id, translation)
+                                            .reply_to_message_id(message.id)
+                                            .await?;
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to translate audio: {}", e);
+                                        bot.send_message(
+                                        message.chat.id,
+                                        format!(
+                                            "Failed to translate audio. Please try again later. ({e})"
+                                        ),
+                                    )
+                                    .reply_to_message_id(message.id)
+                                    .await?;
+                                        return Ok(Response::builder()
+                                            .status(200)
+                                            .body(Body::Text(format!(
+                                                "Failed to translate audio: {e}"
+                                            )))
+                                            .unwrap());
+                                    }
+                                }
+                            } else if let Some(video_note) = reply.video_note() {
+                                // Send typing indicator
+                                bot.send_chat_action(message.chat.id, Typing).await?;
+
+                                // Get the file_id of the voice message
+                                let file_id = &video_note.file.id;
+
+                                // Length of the voice message
+                                let duration = video_note.duration;
+
+                                // Download the voice message
+                                let file = bot.get_file(file_id).await?;
+
+                                // Convert to bytes
+                                let file_path = file.path.clone();
+                                let mut buffer = Vec::new();
+                                info!("Downloading file to buffer");
+                                bot.download_file(&file_path, &mut buffer).await?;
+
+                                let voice_type: Mime = "audio/mp4".parse().unwrap();
+
+                                // Transcribe the voice message
+                                let translation = transcribe_audio(
+                                    buffer,
+                                    voice_type,
+                                    TranscribeType::Translate,
+                                    duration,
+                                )
+                                .await;
 
                                 match translation {
                                     Ok(translation) => {
@@ -186,11 +244,12 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         // Send help message
                         bot.send_message(
                             message.chat.id,
-                            "Welcome to Duck Transcriber! Here are the available commands:
-/tts <text> - Generate a voice message from text (reply to a message to use that text)
-/english - Translate a voice message to English (reply to a voice message to use this command)",
+                            "Welcome to Duck Transcriber! By default, the bot will transcribe every voice message and video note up to 5 minutes. Here are the available commands:
+`/tts <text>` - Generate a voice message from text (reply to a message to use that text)
+`/english` - Translate a voice message to English (reply to a voice message to use this command)",
                         )
                         .reply_to_message_id(message.id)
+                        .parse_mode(MarkdownV2)
                         .await?;
                     };
 
@@ -201,39 +260,14 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         .unwrap())
                 }
                 MessageInfo { is_voice: true, .. } => {
-                    // Get the voice duration
-                    let duration = if let Some(voice) = message.voice() {
-                        voice.duration
-                    } else {
-                        info!("Message is not a voice message");
-                        return Ok(Response::builder()
-                            .status(200)
-                            .body(Body::Text("Message is not a voice or video message".into()))
-                            .unwrap());
-                    };
-
-                    // Check if voice message is longer than 1 minute
-                    if duration > MINUTE_LIMIT * 60 {
-                        // Send a message to the user
-                        bot.send_message(
-                            message.chat.id,
-                            format!(
-            "The audio message is too long. Maximum duration is {MINUTE_LIMIT} minutes."
-        ),
-                        )
-                        .reply_to_message_id(message.id)
-                        .await?;
-                        return Ok(Response::builder()
-                            .status(200)
-                            .body(Body::Text("Message too long".into()))
-                            .unwrap());
-                    }
-
                     // Now that we know that the voice message is shorter then x minutes, download it and send it to openai
                     // Send "typing" action to user
                     bot.send_chat_action(message.chat.id, Typing).await?;
 
                     let voice_id = message.voice().unwrap().file.id.clone();
+
+                    // Length of the voice message
+                    let duration = message.voice().unwrap().duration;
 
                     // Get the voice mime type
                     let default_mime: Mime = "audio/ogg".parse().unwrap();
@@ -257,6 +291,7 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         buffer,
                         voice_type,
                         TranscribeType::Transcribe,
+                        duration,
                     )
                     .await
                     {
@@ -278,7 +313,8 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                         }
                     };
 
-                    if text.is_empty() {
+                    if text.is_empty() || text == "you" {
+                        // for some reason, if nothing is said it returns "you"
                         text = "<no text>".to_string();
                     }
 
@@ -307,8 +343,82 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                     is_video_note: true,
                     ..
                 } => {
-                    // TODO!
-                    // For now just return OK
+                    // Check if the video note is present
+                    let video_note = if let Some(video_note) = message.video_note() {
+                        video_note
+                    } else {
+                        info!("Message is not a video note");
+                        return Ok(Response::builder()
+                            .status(200)
+                            .body(Body::Text("Message is not a video note".into()))
+                            .unwrap());
+                    };
+
+                    // Send "typing" action to user
+                    bot.send_chat_action(message.chat.id, Typing).await?;
+
+                    let video_note_id = video_note.file.id.clone();
+
+                    // Length of the voice message
+                    let duration = video_note.duration;
+
+                    // Get the video note mime type
+                    let default_mime: Mime = "audio/mp4".parse().unwrap();
+
+                    let file = bot.get_file(video_note_id).await?;
+                    let file_path = file.path.clone();
+                    let mut buffer = Vec::new();
+                    info!("Downloading file to buffer");
+                    bot.download_file(&file_path, &mut buffer).await?;
+
+                    // Send file to OpenAI Whisper for transcription
+                    let mut text = match openai::transcribe_audio(
+                        buffer,
+                        default_mime,
+                        TranscribeType::Transcribe,
+                        duration,
+                    )
+                    .await
+                    {
+                        Ok(text) => text,
+                        Err(e) => {
+                            info!("Failed to transcribe audio: {}", e);
+                            bot.send_message(
+                                message.chat.id,
+                                format!(
+                                    "Failed to transcribe audio. Please try again later. ({e})"
+                                ),
+                            )
+                            .reply_to_message_id(message.id)
+                            .await?;
+                            return Ok(Response::builder()
+                                .status(200)
+                                .body(Body::Text(format!("Failed to transcribe audio: {e}")))
+                                .unwrap());
+                        }
+                    };
+
+                    if text.is_empty() || text == "you" {
+                        // for some reason, if nothing is said it returns "you"
+                        text = "<no text>".to_string();
+                    }
+
+                    // Send text to user
+                    if let Err(e) = bot
+                        .send_message(message.chat.id, text)
+                        .reply_to_message_id(message.id)
+                        .disable_web_page_preview(true)
+                        .disable_notification(true)
+                        .allow_sending_without_reply(true)
+                        .await
+                    {
+                        info!("Failed to send message: {}", e);
+                        return Ok(Response::builder()
+                            .status(200)
+                            .body(Body::Text("Failed to send message".into()))
+                            .unwrap());
+                    }
+
                     Ok(Response::builder()
                         .status(200)
                         .body(Body::Text("OK".into()))

@@ -5,6 +5,8 @@ use serde_json::json;
 use std::env;
 use tracing::error;
 
+const MINUTE_LIMIT: usize = 5;
+
 pub enum TranscribeType {
     Transcribe,
     Translate,
@@ -25,7 +27,17 @@ pub async fn transcribe_audio(
     buffer: Vec<u8>,
     voice_type: Mime,
     transcribe_type: TranscribeType,
+    seconds: u32,
 ) -> Result<String, String> {
+    let seconds = seconds as usize;
+    // Check if length of audio is more than x seconds
+    if seconds > MINUTE_LIMIT * 60 {
+        return Err(format!(
+            "Audio is too long. Max length is {} minutes",
+            MINUTE_LIMIT
+        ));
+    }
+
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
