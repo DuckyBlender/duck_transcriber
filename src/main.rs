@@ -4,8 +4,11 @@ use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
 use lambda_http::{run, service_fn, Error};
 use teloxide::Bot;
 use tokio::sync::Mutex;
+use tracing::error;
 use tracing_subscriber::fmt;
+use utils::set_commands;
 
+mod dynamodb;
 mod openai;
 mod telegram;
 mod utils;
@@ -21,6 +24,11 @@ async fn main() -> Result<(), Error> {
 
     // Setup telegram bot (we do it here because this place is executed less often)
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
+    // Update the bot's commands
+    if let Err(err) = set_commands(&bot).await {
+        error!("Failed to set commands: {}", err);
+    }
+
     // Arc and mutex for thread safety
     // todo: maybe we don't need this?
     let bot = Arc::new(Mutex::new(bot));

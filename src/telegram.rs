@@ -1,10 +1,10 @@
+use crate::dynamodb::insert_data;
+use crate::dynamodb::stats;
 use crate::openai::{self, TranscribeType, Voice};
 use crate::openai::{transcribe_audio, tts};
 use crate::utils;
-use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_http::{Body, Error, Request, Response};
 use mime::Mime;
-use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 use teloxide::payloads::SendVoiceSetters;
@@ -60,7 +60,7 @@ pub async fn handle_telegram_request(
 
             match message_info {
                 MessageInfo { is_text: true, .. } => {
-                    handle_text_message(bot.clone(), message).await // todo add dynamodb_client
+                    handle_text_message(bot.clone(), message, &dynamodb_client).await
                 }
                 MessageInfo { is_voice: true, .. } => {
                     handle_voice_message(bot.clone(), message, &dynamodb_client).await
@@ -92,6 +92,7 @@ pub async fn handle_telegram_request(
 async fn handle_text_message(
     bot: Bot,
     message: teloxide::types::Message,
+    dynamodb_client: &aws_sdk_dynamodb::Client,
 ) -> Result<Response<Body>, Error> {
     info!("Received text message");
     // Get the text from the message
@@ -103,6 +104,40 @@ async fn handle_text_message(
         handle_english_command(bot, message).await
     } else if text.starts_with("/help") || text.starts_with("/help@duck_transcriber_bot") {
         handle_help_command(bot, message).await
+    } else if text.starts_with("/stats") || text.starts_with("/stats@duck_transcriber_bot") {
+        let stats = stats(dynamodb_client, message.from().unwrap().id).await;
+        match stats {
+            Ok(stats) => {
+                info!("Sending stats to user");
+                bot.send_message(message.chat.id, stats)
+                    .reply_to_message_id(message.id)
+                    .disable_web_page_preview(true)
+                    .disable_notification(true)
+                    .allow_sending_without_reply(true)
+                    .await?;
+
+                Ok(Response::builder()
+                    .status(200)
+                    .body(Body::Text("OK".into()))
+                    .unwrap())
+            }
+            Err(e) => {
+                error!("Failed to get stats: {}", e);
+                bot.send_message(
+                    message.chat.id,
+                    format!("Failed to get stats. Please try again later. ({e})"),
+                )
+                .reply_to_message_id(message.id)
+                .disable_web_page_preview(true)
+                .allow_sending_without_reply(true)
+                .await?;
+
+                Ok(Response::builder()
+                    .status(200)
+                    .body(Body::Text(format!("Failed to get stats: {e}")))
+                    .unwrap())
+            }
+        }
     } else {
         info!("Unrecognized command");
         Ok(Response::builder()
@@ -579,34 +614,4 @@ pub struct TranscriptionData {
     pub user_id: u64,
     pub timestamp: String,
     pub seconds_transcribed: i64,
-}
-
-async fn insert_data(
-    dynamodb_client: &aws_sdk_dynamodb::Client,
-    transcription_data: TranscriptionData,
-) -> Result<(), aws_sdk_dynamodb::Error> {
-    let mut item = HashMap::new();
-    item.insert(
-        "userId".to_string(),
-        AttributeValue::N(transcription_data.user_id.to_string()),
-    );
-    item.insert(
-        "timestamp".to_string(),
-        AttributeValue::S(transcription_data.timestamp),
-    );
-    item.insert(
-        "secondsTranscribed".to_string(),
-        AttributeValue::N(transcription_data.seconds_transcribed.to_string()),
-    );
-
-    let table_name = "duck_transcriber_data";
-    let put_req = dynamodb_client
-        .put_item()
-        .table_name(table_name)
-        .set_item(Some(item))
-        .send()
-        .await?;
-
-    info!("Put item: {:?}", put_req);
-    Ok(())
 }
