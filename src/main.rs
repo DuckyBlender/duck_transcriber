@@ -1,4 +1,8 @@
+use std::{env, sync::Arc};
+
 use lambda_http::{run, service_fn, Error};
+use teloxide::Bot;
+use tokio::sync::Mutex;
 use tracing_subscriber::fmt;
 
 mod openai;
@@ -14,6 +18,13 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
+    let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
+    // arc and mutex for thread safety
+    let bot = Arc::new(Mutex::new(bot));
+
     // Run the Lambda function
-    run(service_fn(telegram::handle_telegram_request)).await
+    run(service_fn(|req| {
+        telegram::handle_telegram_request(req, Arc::clone(&bot))
+    }))
+    .await
 }

@@ -4,23 +4,43 @@ use crate::utils;
 use lambda_http::{Body, Error, Request, Response};
 use mime::Mime;
 use std::env;
+use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 use teloxide::payloads::SendVoiceSetters;
 use teloxide::types::ChatAction::{RecordVoice, Typing};
 use teloxide::types::{InputFile, ParseMode};
 use teloxide::{
     net::Download, payloads::SendMessageSetters, requests::Requester, types::UpdateKind, Bot,
 };
+use tokio::sync::Mutex;
 use tracing::{error, info};
 
+#[derive(Debug)]
 pub struct MessageInfo {
     pub is_text: bool,
     pub is_voice: bool,
     pub is_video_note: bool,
 }
 
-pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Error> {
-    let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
+impl Display for MessageInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Message: (is_text: {}, is_voice: {}, is_video_note: {})",
+            self.is_text, self.is_voice, self.is_video_note
+        )
+    }
+}
+
+pub async fn handle_telegram_request(
+    req: Request,
+    bot: Arc<Mutex<Bot>>,
+) -> Result<Response<Body>, Error> {
+    // set the default
     let update = utils::convert_input_to_json(req).await.unwrap();
+
+    // unwrap the bot
+    let bot = bot.lock().await;
 
     // Match the update type
     match update.kind {
@@ -33,13 +53,28 @@ pub async fn handle_telegram_request(req: Request) -> Result<Response<Body>, Err
                 is_video_note: message.video_note().is_some(),
             };
 
+            // send this to the owner for debugging (no actual data is sent, only is_text, is_voice, is_video_note)
+            bot.send_message(
+                env::var("TELEGRAM_OWNER_ID").unwrap(),
+                format!(
+                    "{:?}\nFrom: {}",
+                    message_info,
+                    message.from().unwrap().username.as_ref().unwrap()
+                ),
+            )
+            .await?;
+
             match message_info {
-                MessageInfo { is_text: true, .. } => handle_text_message(bot, message).await,
-                MessageInfo { is_voice: true, .. } => handle_voice_message(bot, message).await,
+                MessageInfo { is_text: true, .. } => {
+                    handle_text_message(bot.clone(), message).await
+                }
+                MessageInfo { is_voice: true, .. } => {
+                    handle_voice_message(bot.clone(), message).await
+                }
                 MessageInfo {
                     is_video_note: true,
                     ..
-                } => handle_video_note_message(bot, message).await,
+                } => handle_video_note_message(bot.clone(), message).await,
                 _ => {
                     info!("Received unsupported message");
                     Ok(Response::builder()
@@ -113,6 +148,7 @@ async fn handle_tts_command(
             "Please provide some text to generate a voice message.",
         )
         .reply_to_message_id(message.id)
+        .allow_sending_without_reply(true)
         .await?;
         return Ok(Response::builder()
             .status(200)
@@ -139,6 +175,7 @@ async fn handle_tts_command(
                 format!("Failed to generate voice. Please try again later. ({e})"),
             )
             .reply_to_message_id(message.id)
+            .allow_sending_without_reply(true)
             .await?;
 
             return Ok(Response::builder()
@@ -206,6 +243,7 @@ async fn handle_english_command(
                         format!("Failed to translate audio. Please try again later. ({e})"),
                     )
                     .reply_to_message_id(message.id)
+                    .allow_sending_without_reply(true)
                     .await?;
 
                     return Ok(Response::builder()
@@ -255,6 +293,7 @@ async fn handle_english_command(
                         message.chat.id,
                         format!("Failed to translate audio. Please try again later. ({e})"),
                     )
+                    .allow_sending_without_reply(true)
                     .reply_to_message_id(message.id)
                     .await?;
 
@@ -269,6 +308,7 @@ async fn handle_english_command(
                 message.chat.id,
                 "Please reply to a voice message with the /english command.",
             )
+            .allow_sending_without_reply(true)
             .reply_to_message_id(message.id)
             .await?;
         }
@@ -277,6 +317,7 @@ async fn handle_english_command(
             message.chat.id,
             "Please reply to a voice message with the /english command.",
         )
+        .allow_sending_without_reply(true)
         .reply_to_message_id(message.id)
         .await?;
     }
@@ -300,6 +341,7 @@ async fn handle_help_command(
 <code>/english</code> - Translate a voice message to English (reply to a voice message to use this command)",
     )
     .reply_to_message_id(message.id)
+    .allow_sending_without_reply(true)
     .parse_mode(ParseMode::Html)
     .await?;
 
@@ -352,6 +394,7 @@ async fn handle_voice_message(
                     format!("Failed to transcribe audio. Please try again later. ({e})"),
                 )
                 .reply_to_message_id(message.id)
+                .allow_sending_without_reply(true)
                 .await?;
                 return Ok(Response::builder()
                     .status(200)
@@ -431,6 +474,7 @@ async fn handle_video_note_message(
                     message.chat.id,
                     format!("Failed to transcribe audio. Please try again later. ({e})"),
                 )
+                .allow_sending_without_reply(true)
                 .reply_to_message_id(message.id)
                 .await?;
                 return Ok(Response::builder()
