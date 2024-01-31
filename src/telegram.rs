@@ -110,6 +110,7 @@ async fn handle_text_message(
             Ok(stats) => {
                 info!("Sending stats to user");
                 bot.send_message(message.chat.id, stats)
+                    .parse_mode(ParseMode::Html)
                     .reply_to_message_id(message.id)
                     .disable_web_page_preview(true)
                     .disable_notification(true)

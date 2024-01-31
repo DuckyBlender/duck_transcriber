@@ -93,12 +93,14 @@ pub async fn stats(
         .map(|pos| pos + 1)
         .unwrap_or(0);
 
-    // Format the message
-    let mut message = String::from("Top 5 Users by Seconds Transcribed:\n");
+    // Format the message as HTML
+    let mut message = String::from("<b>Top 5 Users by Seconds Transcribed:</b>\n");
     for (rank, (user, seconds)) in top_5.enumerate() {
         message.push_str(&format!(
-            "{}. User {}: {} seconds\n",
+            // <a href="tg://user?id=123456789">inline mention of a user</a>
+            "{}. <a href=\"tg://user?id={}\">{}</a>: <code>{}</code>\n",
             rank + 1,
+            user,
             user,
             seconds
         ));
@@ -110,11 +112,11 @@ pub async fn stats(
         .find(|(id, _)| id == &user_id.to_string())
     {
         message.push_str(&format!(
-            "\nYour Stats:\nSeconds Transcribed: {}\nYour Rank: {}",
+            "\n<b>Your Stats:</b>\nSeconds Transcribed: <code>{}</code>\nYour Rank: <code>{}</code>",
             user_seconds, user_rank
         ));
     } else {
-        message.push_str("\nYour Stats:\nNo data available.");
+        message.push_str("\n<b>Your Stats:</b>\n<code>No data available.</code>");
     }
 
     Ok(message)
