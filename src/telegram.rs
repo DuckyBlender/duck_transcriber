@@ -442,7 +442,14 @@ async fn handle_voice_message(
 
     // Insert data into dynamodb
     let transcription_data = TranscriptionData {
-        user_id: message.from().unwrap().id.to_string(),
+        // convert user_id to u64
+        user_id: message
+            .from()
+            .unwrap()
+            .id
+            .to_string()
+            .parse::<u64>()
+            .unwrap(),
         timestamp: message.date.to_string(),
         seconds_transcribed: duration as i64,
     };
@@ -541,7 +548,14 @@ async fn handle_video_note_message(
 
     // Insert data into dynamodb
     let transcription_data = TranscriptionData {
-        user_id: message.from().unwrap().id.to_string(),
+        // convert user_id to u64
+        user_id: message
+            .from()
+            .unwrap()
+            .id
+            .to_string()
+            .parse::<u64>()
+            .unwrap(),
         timestamp: message.date.to_string(),
         seconds_transcribed: duration as i64,
     };
@@ -562,7 +576,7 @@ async fn handle_video_note_message(
 }
 
 pub struct TranscriptionData {
-    pub user_id: String,
+    pub user_id: u64,
     pub timestamp: String,
     pub seconds_transcribed: i64,
 }
@@ -574,7 +588,7 @@ async fn insert_data(
     let mut item = HashMap::new();
     item.insert(
         "userId".to_string(),
-        AttributeValue::S(transcription_data.user_id),
+        AttributeValue::N(transcription_data.user_id.to_string()),
     );
     item.insert(
         "timestamp".to_string(),
