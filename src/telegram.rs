@@ -53,17 +53,6 @@ pub async fn handle_telegram_request(
                 is_video_note: message.video_note().is_some(),
             };
 
-            // send this to the owner for debugging (no actual data is sent, only is_text, is_voice, is_video_note)
-            bot.send_message(
-                env::var("TELEGRAM_OWNER_ID").unwrap(),
-                format!(
-                    "{:?}\nFrom: {}",
-                    message_info,
-                    message.from().unwrap().username.as_ref().unwrap()
-                ),
-            )
-            .await?;
-
             match message_info {
                 MessageInfo { is_text: true, .. } => {
                     handle_text_message(bot.clone(), message).await
@@ -148,6 +137,7 @@ async fn handle_tts_command(
             "Please provide some text to generate a voice message.",
         )
         .reply_to_message_id(message.id)
+        .disable_web_page_preview(true)
         .allow_sending_without_reply(true)
         .await?;
         return Ok(Response::builder()
@@ -159,12 +149,24 @@ async fn handle_tts_command(
     // Send "recording voice message" action to user
     bot.send_chat_action(message.chat.id, RecordVoice).await?;
 
-    let voice = tts(tts_text.to_string(), Voice::Alloy).await;
+    // random voice using rand
+    let random_voice = match rand::random::<u8>() % 6 {
+        0 => Voice::Alloy,
+        1 => Voice::Echo,
+        2 => Voice::Fable,
+        3 => Voice::Onyx,
+        4 => Voice::Nova,
+        5 => Voice::Shimmer,
+        _ => Voice::Alloy,
+    };
+
+    let voice = tts(tts_text.to_string(), random_voice).await;
 
     match voice {
         Ok(voice) => {
             // Send the voice message to the user
             bot.send_voice(message.chat.id, InputFile::memory(voice))
+                .caption(format!("Voice: {}", tts_text))
                 .reply_to_message_id(message.id)
                 .await?;
         }
@@ -175,6 +177,7 @@ async fn handle_tts_command(
                 format!("Failed to generate voice. Please try again later. ({e})"),
             )
             .reply_to_message_id(message.id)
+            .disable_web_page_preview(true)
             .allow_sending_without_reply(true)
             .await?;
 
@@ -243,6 +246,7 @@ async fn handle_english_command(
                         format!("Failed to translate audio. Please try again later. ({e})"),
                     )
                     .reply_to_message_id(message.id)
+                    .disable_web_page_preview(true)
                     .allow_sending_without_reply(true)
                     .await?;
 
@@ -283,6 +287,7 @@ async fn handle_english_command(
                     bot.send_message(message.chat.id, translation)
                         .reply_to_message_id(message.id)
                         .disable_web_page_preview(true)
+                        .disable_web_page_preview(true)
                         .disable_notification(true)
                         .allow_sending_without_reply(true)
                         .await?;
@@ -293,8 +298,9 @@ async fn handle_english_command(
                         message.chat.id,
                         format!("Failed to translate audio. Please try again later. ({e})"),
                     )
-                    .allow_sending_without_reply(true)
                     .reply_to_message_id(message.id)
+                    .allow_sending_without_reply(true)
+                    .disable_web_page_preview(true)
                     .await?;
 
                     return Ok(Response::builder()
@@ -308,8 +314,9 @@ async fn handle_english_command(
                 message.chat.id,
                 "Please reply to a voice message with the /english command.",
             )
-            .allow_sending_without_reply(true)
             .reply_to_message_id(message.id)
+            .allow_sending_without_reply(true)
+            .disable_web_page_preview(true)
             .await?;
         }
     } else {
@@ -317,8 +324,9 @@ async fn handle_english_command(
             message.chat.id,
             "Please reply to a voice message with the /english command.",
         )
-        .allow_sending_without_reply(true)
         .reply_to_message_id(message.id)
+        .allow_sending_without_reply(true)
+        .disable_web_page_preview(true)
         .await?;
     }
 
@@ -341,6 +349,7 @@ async fn handle_help_command(
 <code>/english</code> - Translate a voice message to English (reply to a voice message to use this command)",
     )
     .reply_to_message_id(message.id)
+    .disable_web_page_preview(true)
     .allow_sending_without_reply(true)
     .parse_mode(ParseMode::Html)
     .await?;
@@ -394,6 +403,7 @@ async fn handle_voice_message(
                     format!("Failed to transcribe audio. Please try again later. ({e})"),
                 )
                 .reply_to_message_id(message.id)
+                .disable_web_page_preview(true)
                 .allow_sending_without_reply(true)
                 .await?;
                 return Ok(Response::builder()
@@ -474,8 +484,9 @@ async fn handle_video_note_message(
                     message.chat.id,
                     format!("Failed to transcribe audio. Please try again later. ({e})"),
                 )
-                .allow_sending_without_reply(true)
                 .reply_to_message_id(message.id)
+                .allow_sending_without_reply(true)
+                .disable_web_page_preview(true)
                 .await?;
                 return Ok(Response::builder()
                     .status(200)
@@ -509,4 +520,12 @@ async fn handle_video_note_message(
         .status(200)
         .body(Body::Text("OK".into()))
         .unwrap())
+}
+
+async fn send_dev_message(bot: Bot, message: String) {
+    let dev_chat_id = env::var("TELEGRAM_OWNER_ID").unwrap();
+    bot.send_message(dev_chat_id, message)
+        .disable_web_page_preview(true)
+        .await
+        .unwrap();
 }

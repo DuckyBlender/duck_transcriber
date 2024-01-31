@@ -23,19 +23,49 @@ pub enum Voice {
     Shimmer,
 }
 
+// https://platform.openai.com/docs/guides/error-codes/api-errors
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum OpenAIError {
+    // short names
+    InvalidAuth,
+    IncorrectAPIKey,
+    NotInOrg,
+    RateLimit,
+    QuotaExceeded,
+    ServerError,
+    Overloaded,
+    Other(String),
+}
+
+impl std::fmt::Display for OpenAIError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            OpenAIError::InvalidAuth => write!(f, "Invalid authentication"),
+            OpenAIError::IncorrectAPIKey => write!(f, "Incorrect API key"),
+            OpenAIError::NotInOrg => write!(f, "Not in an organization"),
+            OpenAIError::RateLimit => write!(f, "Rate limit exceeded or quota exceeded"),
+            OpenAIError::QuotaExceeded => write!(f, "Quota exceeded or rate limited"),
+            OpenAIError::ServerError => write!(f, "Server error"),
+            OpenAIError::Overloaded => write!(f, "Server overloaded"),
+            OpenAIError::Other(err) => write!(f, "{}", err),
+        }
+    }
+}
+
 pub async fn transcribe_audio(
     buffer: Vec<u8>,
     voice_type: Mime,
     transcribe_type: TranscribeType,
     seconds: u32,
-) -> Result<String, String> {
+) -> Result<String, OpenAIError> {
     let seconds = seconds as usize;
     // Check if length of audio is more than x seconds
     if seconds > MINUTE_LIMIT * 60 {
-        return Err(format!(
-            "Audio is too long. Max length is {} minutes",
+        return Err(OpenAIError::Other(format!(
+            "Audio length is more than {} minutes",
             MINUTE_LIMIT
-        ));
+        )));
     }
 
     // Set OpenAI API headers
@@ -76,17 +106,28 @@ pub async fn transcribe_audio(
         .headers(headers)
         .send()
         .await
-        .map_err(|err| format!("Failed to send request to OpenAI: {}", err))?;
+        .map_err(|err| {
+            error!("Failed to send request to OpenAI: {}", err);
+            OpenAIError::Other(format!("Failed to send request to OpenAI: {}", err))
+        })?;
 
     // Check if OpenAI returned an error
     let status = res.status();
     if !status.is_success() {
+        if status.as_u16() == 429 {
+            // quota exceeded or rate limited (unlikely)
+            return Err(OpenAIError::QuotaExceeded);
+        }
         let json = res
             .json::<serde_json::Value>()
             .await
-            .map_err(|err| format!("Failed to parse OpenAI error response: {}", err))?;
+            .map_err(|err| format!("Failed to parse OpenAI error response: {}", err))
+            .unwrap();
         error!("OpenAI returned an error: {:?}", json);
-        return Err(format!("OpenAI returned an error: {:?}", json));
+        return Err(OpenAIError::Other(format!(
+            "OpenAI returned an error: {:?}",
+            json
+        )));
     }
 
     // Extract text from OpenAI response
@@ -94,7 +135,8 @@ pub async fn transcribe_audio(
     let json = res
         .json::<serde_json::Value>()
         .await
-        .map_err(|err| format!("Failed to parse OpenAI response: {}", err))?;
+        .map_err(|err| format!("Failed to parse OpenAI response: {}", err))
+        .unwrap();
 
     // Get the text from the response
     let text = match json["text"].as_str() {
