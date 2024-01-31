@@ -1,9 +1,10 @@
 use crate::openai::{self, TranscribeType, Voice};
 use crate::openai::{transcribe_audio, tts};
 use crate::utils;
+use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_http::{Body, Error, Request, Response};
 use mime::Mime;
-use std::env;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 use teloxide::payloads::SendVoiceSetters;
@@ -35,12 +36,16 @@ impl Display for MessageInfo {
 pub async fn handle_telegram_request(
     req: Request,
     bot: Arc<Mutex<Bot>>,
+    dynamodb_client: Arc<Mutex<aws_sdk_dynamodb::Client>>,
 ) -> Result<Response<Body>, Error> {
     // set the default
     let update = utils::convert_input_to_json(req).await.unwrap();
 
-    // unwrap the bot
+    // lock the bot (for thread safety)
     let bot = bot.lock().await;
+
+    // unwrap the client (for thread safety)
+    let dynamodb_client = dynamodb_client.lock().await;
 
     // Match the update type
     match update.kind {
@@ -55,15 +60,15 @@ pub async fn handle_telegram_request(
 
             match message_info {
                 MessageInfo { is_text: true, .. } => {
-                    handle_text_message(bot.clone(), message).await
+                    handle_text_message(bot.clone(), message).await // todo add dynamodb_client
                 }
                 MessageInfo { is_voice: true, .. } => {
-                    handle_voice_message(bot.clone(), message).await
+                    handle_voice_message(bot.clone(), message, &dynamodb_client).await
                 }
                 MessageInfo {
                     is_video_note: true,
                     ..
-                } => handle_video_note_message(bot.clone(), message).await,
+                } => handle_video_note_message(bot.clone(), message, &dynamodb_client).await,
                 _ => {
                     info!("Received unsupported message");
                     Ok(Response::builder()
@@ -363,6 +368,7 @@ async fn handle_help_command(
 async fn handle_voice_message(
     bot: Bot,
     message: teloxide::types::Message,
+    dynamodb_client: &aws_sdk_dynamodb::Client,
 ) -> Result<Response<Body>, Error> {
     // Now that we know that the voice message is shorter then x minutes, download it and send it to openai
     // Send "typing" action to user
@@ -434,6 +440,22 @@ async fn handle_voice_message(
             .unwrap());
     }
 
+    // Insert data into dynamodb
+    let transcription_data = TranscriptionData {
+        user_id: message.from().unwrap().id.to_string(),
+        timestamp: message.date.to_string(),
+        seconds_transcribed: duration as i64,
+    };
+
+    match insert_data(dynamodb_client, transcription_data).await {
+        Ok(_) => {
+            info!("Successfully inserted data into dynamodb");
+        }
+        Err(e) => {
+            error!("Failed to insert data into dynamodb: {}", e);
+        }
+    }
+
     Ok(Response::builder()
         .status(200)
         .body(Body::Text("OK".into()))
@@ -443,6 +465,7 @@ async fn handle_voice_message(
 async fn handle_video_note_message(
     bot: Bot,
     message: teloxide::types::Message,
+    dynamodb_client: &aws_sdk_dynamodb::Client,
 ) -> Result<Response<Body>, Error> {
     // Check if the video note is present
     let video_note = if let Some(video_note) = message.video_note() {
@@ -516,16 +539,60 @@ async fn handle_video_note_message(
             .unwrap());
     }
 
+    // Insert data into dynamodb
+    let transcription_data = TranscriptionData {
+        user_id: message.from().unwrap().id.to_string(),
+        timestamp: message.date.to_string(),
+        seconds_transcribed: duration as i64,
+    };
+
+    match insert_data(dynamodb_client, transcription_data).await {
+        Ok(_) => {
+            info!("Successfully inserted data into dynamodb");
+        }
+        Err(e) => {
+            error!("Failed to insert data into dynamodb: {}", e);
+        }
+    }
+
     Ok(Response::builder()
         .status(200)
         .body(Body::Text("OK".into()))
         .unwrap())
 }
 
-async fn send_dev_message(bot: Bot, message: String) {
-    let dev_chat_id = env::var("TELEGRAM_OWNER_ID").unwrap();
-    bot.send_message(dev_chat_id, message)
-        .disable_web_page_preview(true)
-        .await
-        .unwrap();
+pub struct TranscriptionData {
+    pub user_id: String,
+    pub timestamp: String,
+    pub seconds_transcribed: i64,
+}
+
+async fn insert_data(
+    dynamodb_client: &aws_sdk_dynamodb::Client,
+    transcription_data: TranscriptionData,
+) -> Result<(), aws_sdk_dynamodb::Error> {
+    let mut item = HashMap::new();
+    item.insert(
+        "userId".to_string(),
+        AttributeValue::S(transcription_data.user_id),
+    );
+    item.insert(
+        "timestamp".to_string(),
+        AttributeValue::S(transcription_data.timestamp),
+    );
+    item.insert(
+        "secondsTranscribed".to_string(),
+        AttributeValue::N(transcription_data.seconds_transcribed.to_string()),
+    );
+
+    let table_name = "duck_transcriber_data";
+    let put_req = dynamodb_client
+        .put_item()
+        .table_name(table_name)
+        .set_item(Some(item))
+        .send()
+        .await?;
+
+    info!("Put item: {:?}", put_req);
+    Ok(())
 }
