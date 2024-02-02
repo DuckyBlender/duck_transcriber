@@ -1,6 +1,6 @@
 use crate::utils::other::TranscriptionData;
-use aws_sdk_dynamodb::types::{AttributeValue, Select};
-use std::collections::HashMap;
+use aws_sdk_dynamodb::{operation::query, types::AttributeValue};
+use std::{collections::HashMap, env};
 use teloxide::types::UserId;
 use tracing::info;
 
@@ -8,29 +8,84 @@ pub async fn insert_data(
     dynamodb_client: &aws_sdk_dynamodb::Client,
     transcription_data: TranscriptionData,
 ) -> Result<(), aws_sdk_dynamodb::Error> {
-    let mut item = HashMap::new();
-    item.insert(
-        "userId".to_string(),
-        AttributeValue::N(transcription_data.user_id.to_string()),
-    );
-    item.insert(
-        "timestamp".to_string(),
-        AttributeValue::S(transcription_data.timestamp),
-    );
-    item.insert(
-        "secondsTranscribed".to_string(),
-        AttributeValue::N(transcription_data.seconds_transcribed.to_string()),
-    );
-
-    let table_name = "duck_transcriber_stats";
-    let put_req = dynamodb_client
-        .put_item()
-        .table_name(table_name)
-        .set_item(Some(item))
+    // Check if the user is in the database
+    // If the user is in the database, update the user's seconds_transcribed
+    // If the user is not in the database, add the user to the database
+    let get_item_output = dynamodb_client
+        .get_item()
+        .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
+        .key(
+            "userId",
+            AttributeValue::N(transcription_data.user_id.to_string()),
+        )
         .send()
         .await?;
 
-    info!("Put item: {:?}", put_req);
+    if get_item_output.item.is_some() {
+        info!("User is in the database");
+        // Update the user's seconds_transcribed
+        // First get the user's current seconds_transcribed
+        let current_seconds_transcribed = get_item_output
+            .item
+            .unwrap()
+            .get("transcribedSeconds")
+            .unwrap()
+            .as_n()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap();
+
+        // Add the new seconds_transcribed to the user's current seconds_transcribed
+        let new_seconds_transcribed =
+            current_seconds_transcribed + transcription_data.seconds_transcribed;
+
+        // Update the user's seconds_transcribed
+        let mut item = HashMap::new();
+        item.insert(
+            "userId".to_string(),
+            AttributeValue::N(transcription_data.user_id.to_string()),
+        );
+        item.insert(
+            "transcribedSeconds".to_string(),
+            AttributeValue::N(new_seconds_transcribed.to_string()),
+        );
+        // Update the user's seconds_transcribed
+        let put_req = dynamodb_client
+            .put_item()
+            .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
+            .set_item(Some(item))
+            .send()
+            .await?;
+
+        info!(
+            "User {} seconds_transcribed updated to {}",
+            transcription_data.user_id, new_seconds_transcribed
+        );
+    } else {
+        info!("User is not in the database");
+        // Add them to the database
+        let mut item = HashMap::new();
+        item.insert(
+            "userId".to_string(),
+            AttributeValue::N(transcription_data.user_id.to_string()),
+        );
+        item.insert(
+            "transcribedSeconds".to_string(),
+            AttributeValue::N(transcription_data.seconds_transcribed.to_string()),
+        );
+
+        let put_req = dynamodb_client
+            .put_item()
+            .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
+            .set_item(Some(item))
+            .send()
+            .await?;
+        info!(
+            "User {} to the database with {} seconds",
+            transcription_data.user_id, transcription_data.seconds_transcribed
+        );
+    }
+
     Ok(())
 }
 
@@ -45,67 +100,45 @@ pub async fn stats(
     user_id: UserId,
     username: String,
 ) -> Result<String, aws_sdk_dynamodb::Error> {
-    let scan_output = dynamodb_client
-        .scan()
-        .table_name("duck_transcriber_stats")
-        .select(Select::AllAttributes)
+    // Query the user's stats
+    let query_output = dynamodb_client
+        .query()
+        .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
+        .key_condition_expression("#userId = :userIdVal")
+        .expression_attribute_names("#userId", "userId")
+        .expression_attribute_values(":userIdVal", AttributeValue::N(user_id.to_string()))
         .send()
         .await?;
 
-    let mut user_stats = HashMap::new();
-    let mut all_stats = Vec::new();
+    let total_transcribed: i64;
 
-    if let Some(items) = scan_output.items {
-        for item in items {
-            let user_id_str = item
-                .get("userId")
-                .map(|v| v.as_n())
-                .unwrap()
-                .unwrap()
-                .to_string();
-            let seconds_transcribed = item
-                .get("secondsTranscribed")
-                .map(|v| v.as_n())
-                .unwrap()
-                .unwrap()
-                .parse::<i32>()
-                .unwrap_or(0);
+    // If the user is not in the database, tell the user that they are not in the database
+    if query_output.items.is_none() {
+        info!("User is not in the database");
+        // Return "USER IS NOT IN DATABASE"
+        Ok("You don't have any stats yet. Transcribe something to get started!".to_string())
+    } else {
+        // If the user is in the database, get the user's stats
+        info!("User is in the database");
+        // Get the user's stats
+        total_transcribed = query_output
+            .items
+            .unwrap()
+            .first()
+            .unwrap()
+            .get("transcribedSeconds")
+            .unwrap()
+            .as_n()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap();
 
-            let entry = user_stats.entry(user_id_str.clone()).or_insert(0);
-            *entry += seconds_transcribed;
+        // TODO: Get the user's rank
 
-            all_stats.push((user_id_str.clone(), seconds_transcribed));
-        }
+        let message = format!(
+            "<b>{}'s Stats\nSeconds Transcribed: <code>{}</code>",
+            username, total_transcribed
+        );
+        Ok(message)
     }
-
-    all_stats.sort_by(|a, b| b.1.cmp(&a.1));
-
-    let user_name = user_id.to_string();
-    let mut user_rank = 0;
-    for (index, (user, _)) in all_stats.iter().enumerate() {
-        if user == &user_name {
-            user_rank = index + 1;
-            break;
-        }
-    }
-    if user_rank == 0 {
-        return Ok("You have no stats yet! Try sending a voice message or video note.".to_string());
-    }
-
-    let ordinal = match user_rank {
-        1 => "st",
-        2 => "nd",
-        3 => "rd",
-        _ => "th",
-    };
-
-    let message = format!(
-        "<b>Stats for: {}</b>\nSeconds Transcribed: <code>{}</code> ({}{})",
-        username,
-        user_stats.get(&user_name).unwrap_or(&0),
-        user_rank,
-        ordinal
-    );
-
-    Ok(message)
 }

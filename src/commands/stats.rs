@@ -5,6 +5,8 @@ use teloxide::types::ParseMode;
 use teloxide::{payloads::SendMessageSetters, requests::Requester, Bot};
 use tracing::error;
 
+use crate::utils::dynamodb::stats;
+
 pub async fn handle_stats_command(
     bot: Bot,
     message: teloxide::types::Message,

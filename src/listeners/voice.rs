@@ -1,5 +1,5 @@
 use crate::utils::{
-    // dynamodb::insert_data,
+    dynamodb::insert_data,
     openai::{transcribe_audio, TranscribeType},
     other::TranscriptionData,
 };
@@ -98,14 +98,14 @@ pub async fn handle_voice_message(
         seconds_transcribed: duration as i64,
     };
 
-    // match insert_data(dynamodb_client, transcription_data).await {
-    //     Ok(_) => {
-    //         info!("Successfully inserted data into dynamodb");
-    //     }
-    //     Err(e) => {
-    //         error!("Failed to insert data into dynamodb: {}", e);
-    //     }
-    // }
+    match insert_data(dynamodb_client, transcription_data).await {
+        Ok(_) => {
+            info!("Successfully inserted data into dynamodb");
+        }
+        Err(e) => {
+            error!("Failed to insert data into dynamodb: {}", e);
+        }
+    }
 
     Ok(Response::builder()
         .status(200)
