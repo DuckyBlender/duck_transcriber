@@ -98,6 +98,8 @@ pub async fn handle_voice_message(
         seconds_transcribed: duration as i64,
     };
 
+    info!("Inserting voice note transcription data into dynamodb");
+
     match insert_data(dynamodb_client, transcription_data).await {
         Ok(_) => {
             info!("Successfully inserted data into dynamodb");

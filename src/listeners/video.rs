@@ -100,6 +100,8 @@ pub async fn handle_video_note_message(
         seconds_transcribed: duration as i64,
     };
 
+    info!("Inserting video note transcription data into dynamodb");
+
     match insert_data(dynamodb_client, transcription_data).await {
         Ok(_) => {
             info!("Successfully inserted data into dynamodb");

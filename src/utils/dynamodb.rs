@@ -1,8 +1,8 @@
 use crate::utils::other::TranscriptionData;
-use aws_sdk_dynamodb::{operation::query, types::AttributeValue};
+use aws_sdk_dynamodb::types::AttributeValue;
 use std::{collections::HashMap, env};
 use teloxide::types::UserId;
-use tracing::info;
+use tracing::{error, info};
 
 pub async fn insert_data(
     dynamodb_client: &aws_sdk_dynamodb::Client,
@@ -22,7 +22,7 @@ pub async fn insert_data(
         .await?;
 
     if get_item_output.item.is_some() {
-        info!("User is in the database");
+        info!("User is in the database, getting user's seconds_transcribed");
         // Update the user's seconds_transcribed
         // First get the user's current seconds_transcribed
         let current_seconds_transcribed = get_item_output
@@ -38,6 +38,10 @@ pub async fn insert_data(
         // Add the new seconds_transcribed to the user's current seconds_transcribed
         let new_seconds_transcribed =
             current_seconds_transcribed + transcription_data.seconds_transcribed;
+        info!(
+            "User's current seconds_transcribed: {}",
+            current_seconds_transcribed
+        );
 
         // Update the user's seconds_transcribed
         let mut item = HashMap::new();
@@ -50,12 +54,18 @@ pub async fn insert_data(
             AttributeValue::N(new_seconds_transcribed.to_string()),
         );
         // Update the user's seconds_transcribed
+        info!("Updating user's seconds_transcribed");
         let put_req = dynamodb_client
             .put_item()
             .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
             .set_item(Some(item))
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                error!("Failed to update user's seconds_transcribed: {}", e);
+                error!("DEBUG: {:?}", e);
+                e
+            })?;
 
         info!(
             "User {} seconds_transcribed updated to {}",
@@ -74,14 +84,20 @@ pub async fn insert_data(
             AttributeValue::N(transcription_data.seconds_transcribed.to_string()),
         );
 
+        info!("Adding user to the database");
         let put_req = dynamodb_client
             .put_item()
             .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
             .set_item(Some(item))
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                error!("Failed to update user's seconds_transcribed: {}", e);
+                error!("DEBUG: {:?}", e);
+                e
+            })?;
         info!(
-            "User {} to the database with {} seconds",
+            "Added user {} to the database with {} seconds",
             transcription_data.user_id, transcription_data.seconds_transcribed
         );
     }
@@ -109,7 +125,6 @@ pub async fn stats(
         .expression_attribute_values(":userIdVal", AttributeValue::N(user_id.to_string()))
         .send()
         .await?;
-
     let total_transcribed: i64;
 
     // If the user is not in the database, tell the user that they are not in the database
@@ -136,7 +151,7 @@ pub async fn stats(
         // TODO: Get the user's rank
 
         let message = format!(
-            "<b>{}'s Stats\nSeconds Transcribed: <code>{}</code>",
+            "<b>{}'s Stats</b>\nSeconds Transcribed: <code>{}</code>",
             username, total_transcribed
         );
         Ok(message)
