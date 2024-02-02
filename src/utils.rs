@@ -21,7 +21,7 @@ pub async fn set_commands(bot: &Bot) -> Result<teloxide::types::True, teloxide::
         BotCommand::new("tts", "Text to speech a message using OpenAI's TTS"),
         BotCommand::new("english", "Translate a voice message to english using OpenAI Translations"),
         BotCommand::new("help", "Show the help message"),
-        BotCommand::new("stats", "Show the stats of the bot"),
+        BotCommand::new("stats", "Show the stats of the user"),
     ];
 
     bot.set_my_commands(commands).await

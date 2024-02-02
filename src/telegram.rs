@@ -99,46 +99,13 @@ async fn handle_text_message(
     let text = message.text().unwrap();
 
     if text.starts_with("/tts") || text.starts_with("/tts@duck_transcriber_bot") {
-        handle_tts_command(bot, message.clone(), text).await
+        handle_tts_command(bot, message).await
     } else if text.starts_with("/english") || text.starts_with("/english@duck_transcriber_bot") {
         handle_english_command(bot, message).await
     } else if text.starts_with("/help") || text.starts_with("/help@duck_transcriber_bot") {
         handle_help_command(bot, message).await
     } else if text.starts_with("/stats") || text.starts_with("/stats@duck_transcriber_bot") {
-        let stats = stats(dynamodb_client, message.from().unwrap().id).await;
-        match stats {
-            Ok(stats) => {
-                info!("Sending stats to user");
-                bot.send_message(message.chat.id, stats)
-                    .parse_mode(ParseMode::Html)
-                    .reply_to_message_id(message.id)
-                    .disable_web_page_preview(true)
-                    .disable_notification(true)
-                    .allow_sending_without_reply(true)
-                    .await?;
-
-                Ok(Response::builder()
-                    .status(200)
-                    .body(Body::Text("OK".into()))
-                    .unwrap())
-            }
-            Err(e) => {
-                error!("Failed to get stats: {}", e);
-                bot.send_message(
-                    message.chat.id,
-                    format!("Failed to get stats. Please try again later. ({e})"),
-                )
-                .reply_to_message_id(message.id)
-                .disable_web_page_preview(true)
-                .allow_sending_without_reply(true)
-                .await?;
-
-                Ok(Response::builder()
-                    .status(200)
-                    .body(Body::Text(format!("Failed to get stats: {e}")))
-                    .unwrap())
-            }
-        }
+        handle_stats_command(bot, message, dynamodb_client).await
     } else {
         info!("Unrecognized command");
         Ok(Response::builder()
@@ -148,11 +115,57 @@ async fn handle_text_message(
     }
 }
 
+async fn handle_stats_command(
+    bot: Bot,
+    message: teloxide::types::Message,
+    dynamodb_client: &aws_sdk_dynamodb::Client,
+) -> Result<Response<Body>, Error> {
+    // Get the user_id and username
+    let user_id = message.from().unwrap().id;
+    let username = message
+        .from()
+        .unwrap()
+        .username
+        .clone()
+        .unwrap_or("".to_string());
+
+    let stats = stats(dynamodb_client, user_id, username).await;
+
+    match stats {
+        Ok(stats) => {
+            bot.send_message(message.chat.id, stats)
+                .reply_to_message_id(message.id)
+                .disable_web_page_preview(true)
+                .disable_notification(true)
+                .allow_sending_without_reply(true)
+                .parse_mode(ParseMode::Html)
+                .await?;
+        }
+        Err(e) => {
+            error!("Failed to get stats: {}", e);
+            bot.send_message(
+                message.chat.id,
+                format!("Failed to get stats. Please try again later. ({})", e),
+            )
+            .reply_to_message_id(message.id)
+            .disable_web_page_preview(true)
+            .allow_sending_without_reply(true)
+            .await?;
+        }
+    }
+
+    Ok(Response::builder()
+        .status(200)
+        .body(Body::Text("OK".into()))
+        .unwrap())
+}
+
 async fn handle_tts_command(
     bot: Bot,
     message: teloxide::types::Message,
-    text: &str,
 ) -> Result<Response<Body>, Error> {
+    let text = message.text().unwrap();
+
     // CHECK FOR REPLY (WE NEED A TEXT INPUT)
     // IF THERE IS NO REPLY, USE THE TEXT FROM THE COMMAND
     let tts_text;

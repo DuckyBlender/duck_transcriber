@@ -37,13 +37,16 @@ pub async fn insert_data(
 }
 
 // /stats command
-// sends a message with the stats (top 5 people with most seconds uploaded, top 5 people with most seconds transcribed and the user's stats with his rank)
+// Sends a message with the stats
+// Here is the command output:
+// Your Stats:
+// Seconds Transcribed: <code>123</code> ([user's rank]st/nd/rd/th)
 // Continuing the stats function
 pub async fn stats(
     dynamodb_client: &aws_sdk_dynamodb::Client,
     user_id: UserId,
+    username: String,
 ) -> Result<String, aws_sdk_dynamodb::Error> {
-    // Assuming a simple table structure, adjust as necessary
     let scan_output = dynamodb_client
         .scan()
         .table_name("duck_transcriber_stats")
@@ -70,54 +73,41 @@ pub async fn stats(
                 .parse::<i32>()
                 .unwrap_or(0);
 
-            // Collect stats for all users
             let entry = user_stats.entry(user_id_str.clone()).or_insert(0);
             *entry += seconds_transcribed;
 
-            // Check if this is the specific user we're looking for
-            if user_id_str == user_id.to_string() {
-                all_stats.push((user_id_str, seconds_transcribed));
-            }
+            all_stats.push((user_id_str.clone(), seconds_transcribed));
         }
     }
 
-    // Sort and find top 5
-    let mut sorted_stats: Vec<_> = user_stats.into_iter().collect();
-    sorted_stats.sort_by(|a, b| b.1.cmp(&a.1));
-    let top_5 = sorted_stats.into_iter().take(5);
+    all_stats.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // Find user's rank
-    let user_rank = all_stats
-        .iter()
-        .position(|(id, _)| id == &user_id.to_string())
-        .map(|pos| pos + 1)
-        .unwrap_or(0);
-
-    // Format the message as HTML
-    let mut message = String::from("<b>Top 5 Users by Seconds Transcribed:</b>\n");
-    for (rank, (user, seconds)) in top_5.enumerate() {
-        message.push_str(&format!(
-            // <a href="tg://user?id=123456789">inline mention of a user</a>
-            "{}. <a href=\"tg://user?id={}\">{}</a>: <code>{}</code>\n",
-            rank + 1,
-            user,
-            user,
-            seconds
-        ));
+    let user_name = user_id.to_string();
+    let mut user_rank = 0;
+    for (index, (user, _)) in all_stats.iter().enumerate() {
+        if user == &user_name {
+            user_rank = index + 1;
+            break;
+        }
+    }
+    if user_rank == 0 {
+        return Ok("You have no stats yet! Try sending a voice message or video note.".to_string());
     }
 
-    // Add user's stats and rank
-    if let Some((_, user_seconds)) = all_stats
-        .into_iter()
-        .find(|(id, _)| id == &user_id.to_string())
-    {
-        message.push_str(&format!(
-            "\n<b>Your Stats:</b>\nSeconds Transcribed: <code>{}</code>\nYour Rank: <code>{}</code>",
-            user_seconds, user_rank
-        ));
-    } else {
-        message.push_str("\n<b>Your Stats:</b>\n<code>No data available.</code>");
-    }
+    let ordinal = match user_rank {
+        1 => "st",
+        2 => "nd",
+        3 => "rd",
+        _ => "th",
+    };
+
+    let message = format!(
+        "<b>Stats for: {}</b>\nSeconds Transcribed: <code>{}</code> ({}{})",
+        username,
+        user_stats.get(&user_name).unwrap_or(&0),
+        user_rank,
+        ordinal
+    );
 
     Ok(message)
 }

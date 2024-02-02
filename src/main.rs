@@ -30,7 +30,6 @@ async fn main() -> Result<(), Error> {
     }
 
     // Arc and mutex for thread safety
-    // todo: maybe we don't need this?
     let bot = Arc::new(Mutex::new(bot));
 
     // Setup the dynamodb client
