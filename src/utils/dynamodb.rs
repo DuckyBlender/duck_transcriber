@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-
+use crate::utils::other::TranscriptionData;
 use aws_sdk_dynamodb::types::{AttributeValue, Select};
+use std::collections::HashMap;
 use teloxide::types::UserId;
 use tracing::info;
-
-use crate::telegram::TranscriptionData;
 
 pub async fn insert_data(
     dynamodb_client: &aws_sdk_dynamodb::Client,

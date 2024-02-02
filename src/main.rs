@@ -1,16 +1,14 @@
-use std::{env, sync::Arc};
+use std::env;
 
 use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
 use lambda_http::{run, service_fn, Error};
 use teloxide::Bot;
-use tokio::sync::Mutex;
 use tracing::error;
 use tracing_subscriber::fmt;
-use utils::set_commands;
+use utils::{other::set_commands, telegram::handle_telegram_request};
 
-mod dynamodb;
-mod openai;
-mod telegram;
+mod commands;
+mod listeners;
 mod utils;
 
 #[tokio::main]
@@ -22,15 +20,12 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
-    // Setup telegram bot (we do it here because this place is executed less often)
+    // Setup telegram bot (we do it here because this place is a cold start)
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").unwrap());
     // Update the bot's commands
     if let Err(err) = set_commands(&bot).await {
         error!("Failed to set commands: {}", err);
     }
-
-    // Arc and mutex for thread safety
-    let bot = Arc::new(Mutex::new(bot));
 
     // Setup the dynamodb client
     let region_provider: RegionProviderChain =
@@ -39,14 +34,11 @@ async fn main() -> Result<(), Error> {
         .region(region_provider)
         .load()
         .await;
-
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&config);
-    // Arc and mutex for thread safety
-    let dynamodb_client = Arc::new(Mutex::new(dynamodb_client));
 
     // Run the Lambda function
     run(service_fn(|req| {
-        telegram::handle_telegram_request(req, Arc::clone(&bot), Arc::clone(&dynamodb_client))
+        handle_telegram_request(req, &bot, &dynamodb_client)
     }))
     .await
 }
