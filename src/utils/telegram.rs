@@ -13,7 +13,20 @@ pub async fn handle_telegram_request(
     dynamodb_client: &aws_sdk_dynamodb::Client,
 ) -> Result<Response<Body>, Error> {
     // set the default
-    let update = convert_input_to_json(req).await.unwrap();
+    let update = convert_input_to_json(req).await;
+    if let Err(e) = update {
+        info!("Failed to convert input to json: {}", e);
+        return Ok(Response::builder()
+            .status(200)
+            .body(Body::Text(format!(
+                "Failed to convert input to json: {}",
+                e
+            )))
+            .unwrap());
+    };
+
+    // safe to unwrap
+    let update = update.unwrap();
 
     // Match the update type
     match update.kind {

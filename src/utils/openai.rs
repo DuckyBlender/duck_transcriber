@@ -14,6 +14,7 @@ pub enum TranscribeType {
 
 // dont warn about unused variants
 #[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub enum Voice {
     Alloy,
     Echo,
@@ -21,6 +22,19 @@ pub enum Voice {
     Onyx,
     Nova,
     Shimmer,
+}
+
+impl std::fmt::Display for Voice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Voice::Alloy => write!(f, "Alloy"),
+            Voice::Echo => write!(f, "Echo"),
+            Voice::Fable => write!(f, "Fable"),
+            Voice::Onyx => write!(f, "Onyx"),
+            Voice::Nova => write!(f, "Nova"),
+            Voice::Shimmer => write!(f, "Shimmer"),
+        }
+    }
 }
 
 // https://platform.openai.com/docs/guides/error-codes/api-errors

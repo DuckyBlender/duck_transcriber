@@ -69,7 +69,7 @@ pub async fn handle_tts_command(
         Ok(voice) => {
             // Send the voice message to the user
             bot.send_voice(message.chat.id, InputFile::memory(voice))
-                .caption(format!("Voice: {}", tts_text))
+                .caption(format!("Voice: {}", random_voice))
                 .reply_to_message_id(message.id)
                 .await?;
         }
