@@ -39,7 +39,7 @@ pub struct MessageInfo {
 pub struct TranscriptionData {
     pub user_id: u64,
     pub timestamp: String,
-    pub seconds_transcribed: i64,
+    pub seconds_transcribed: u64,
 }
 
 impl Display for MessageInfo {

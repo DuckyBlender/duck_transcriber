@@ -1,5 +1,5 @@
 use crate::utils::{
-    dynamodb::insert_data,
+    dynamodb::{smart_add_item, Item, TABLE_NAME},
     openai::{transcribe_audio, TranscribeType},
     other::TranscriptionData,
 };
@@ -97,17 +97,30 @@ pub async fn handle_video_note_message(
             .parse::<u64>()
             .unwrap(),
         timestamp: message.date.to_string(),
-        seconds_transcribed: duration as i64,
+        seconds_transcribed: duration as u64,
     };
 
     info!("Inserting video note transcription data into dynamodb");
 
-    match insert_data(dynamodb_client, transcription_data).await {
-        Ok(_) => {
-            info!("Successfully inserted data into dynamodb");
-        }
+    let item = Item {
+        table: TABLE_NAME.to_string(),
+        user_id: transcription_data.user_id.to_string(),
+        transcribed_seconds: transcription_data.seconds_transcribed,
+    };
+
+    match smart_add_item(dynamodb_client, item).await {
+        Ok(_) => info!("Successfully inserted video note transcription data into dynamodb"),
         Err(e) => {
-            error!("Failed to insert data into dynamodb: {}", e);
+            error!(
+                "Failed to insert video note transcription data into dynamodb: {}",
+                e
+            );
+            return Ok(Response::builder()
+                .status(200)
+                .body(Body::Text(
+                    "Failed to insert video note transcription data into dynamodb".into(),
+                ))
+                .unwrap());
         }
     }
 

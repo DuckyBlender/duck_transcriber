@@ -1,3 +1,5 @@
+use std::env;
+
 use crate::utils::openai::tts;
 use crate::utils::openai::Voice;
 use lambda_http::{Body, Response};
@@ -28,7 +30,13 @@ pub async fn handle_tts_command(
         tts_text = text
             .trim_start_matches("/tts")
             .trim()
-            .trim_start_matches("/tts@duck_transcriber_bot")
+            .trim_start_matches(
+                format!(
+                    "/tts@{}",
+                    env::var("TELEGRAM_BOT_USERNAME").unwrap_or_default()
+                )
+                .as_str(),
+            )
             .trim();
     }
 

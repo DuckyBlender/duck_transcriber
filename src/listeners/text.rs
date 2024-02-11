@@ -13,7 +13,7 @@ use teloxide::types::MessageEntityKind::BotCommand;
 pub async fn handle_text_message(
     bot: Bot,
     message: teloxide::types::Message,
-    dynamodb_client: &aws_sdk_dynamodb::Client,
+    dynamodb_client: &aws_sdk_dynamodb::Client, // for /stats
 ) -> Result<Response<Body>, Error> {
     info!("Received text message");
 

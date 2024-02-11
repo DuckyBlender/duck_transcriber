@@ -1,119 +1,154 @@
-use crate::utils::other::TranscriptionData;
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+#![allow(clippy::result_large_err)]
+
+use aws_sdk_dynamodb::error::SdkError;
+
+use aws_sdk_dynamodb::operation::execute_statement::ExecuteStatementError;
 use aws_sdk_dynamodb::types::AttributeValue;
-use std::{collections::HashMap, env};
-use teloxide::types::UserId;
+use aws_sdk_dynamodb::Client;
 use tracing::{error, info};
 
-pub async fn insert_data(
-    dynamodb_client: &aws_sdk_dynamodb::Client,
-    transcription_data: TranscriptionData,
-) -> Result<(), aws_sdk_dynamodb::Error> {
-    let table_name = env::var("DYNAMODB_TABLE_NAME").unwrap();
+pub const TABLE_NAME: &str = "duck_transcriber_db";
 
-    // Check if the user is in the database
-    let get_item_output = dynamodb_client
-        .get_item()
-        .table_name(&table_name)
-        .key(
-            "userId",
-            AttributeValue::N(transcription_data.user_id.to_string()),
-        )
-        .send()
-        .await?;
+/// A struct for the arguments and returns from add_item and query_item.
+#[derive(Clone, Debug)]
+pub struct Item {
+    pub table: String,
+    pub user_id: String,
+    pub transcribed_seconds: u64,
+}
 
-    let mut new_seconds_transcribed = transcription_data.seconds_transcribed;
-
-    // If the user is in the database, update the user's seconds_transcribed
-    if get_item_output.item.is_some() {
-        info!("User is in the database, getting user's seconds_transcribed");
-        let current_seconds_transcribed = get_item_output
-            .item
-            .unwrap()
-            .get("transcribedSeconds")
-            .unwrap()
-            .as_n()
-            .unwrap()
-            .parse::<i64>()
-            .unwrap();
-
-        // Add the new seconds_transcribed to the user's current seconds_transcribed
-        new_seconds_transcribed += current_seconds_transcribed;
-        info!(
-            "User's current seconds_transcribed: {}",
-            current_seconds_transcribed
-        );
-    }
-
-    // Insert or update the user's seconds_transcribed
-    info!("Updating user's seconds_transcribed");
-    let put_req = dynamodb_client
-        .put_item()
-        .table_name(&table_name)
-        .item(
-            "userId",
-            AttributeValue::N(transcription_data.user_id.to_string()),
-        )
-        .item(
-            "transcribedSeconds",
-            AttributeValue::N(new_seconds_transcribed.to_string()),
-        )
+/// Add an item to the table.
+async fn add_item(client: &Client, item: Item) -> Result<(), SdkError<ExecuteStatementError>> {
+    info!("Adding item to table");
+    match client
+        .execute_statement()
+        .statement(format!(
+            r#"INSERT INTO {} VALUE {{
+                userId: ?,
+                transcribedSeconds: ?
+        }}"#,
+            item.table,
+        ))
+        .set_parameters(Some(vec![
+            AttributeValue::N(item.user_id),
+            AttributeValue::N(item.transcribed_seconds.to_string()),
+        ]))
         .send()
         .await
-        .map_err(|e| {
-            error!("Failed to update user's seconds_transcribed: {}", e);
-            error!("DEBUG: {:?}", e);
-            e
-        })?;
-
-    info!(
-        "User {} seconds_transcribed updated to {}",
-        transcription_data.user_id, new_seconds_transcribed
-    );
-
-    Ok(())
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
-// /stats command
-// Sends a message with the stats
-// Here is the command output:
-// Your Stats:
-// Seconds Transcribed: <code>123</code> ([user's rank]st/nd/rd/th)
-// Continuing the stats function
-pub async fn stats(
-    dynamodb_client: &aws_sdk_dynamodb::Client,
-    user_id: UserId,
-    username: String,
-) -> Result<String, aws_sdk_dynamodb::Error> {
-    let query_output = dynamodb_client
-        .query()
-        .table_name(env::var("DYNAMODB_TABLE_NAME").unwrap())
-        .key_condition_expression("#userId = :userIdVal")
-        .expression_attribute_names("#userId", "userId")
-        .expression_attribute_values(":userIdVal", AttributeValue::N(user_id.to_string()))
+/// Query the table for an item matching the input values.
+/// Returns None if no matching item is found or Some(u64) if a matching item is found.
+pub async fn query_item(client: &Client, item: Item) -> Option<u64> {
+    info!("Querying table for item");
+    match client
+        .execute_statement()
+        .statement(format!(r#"SELECT * FROM {} WHERE userId = ?"#, item.table))
+        .set_parameters(Some(vec![AttributeValue::N(item.user_id)]))
         .send()
-        .await?;
+        .await
+    {
+        Ok(resp) => {
+            if !resp.items().is_empty() {
+                info!("Found a matching entry in the table:");
+                let seconds_transcribed = resp
+                    .items
+                    .unwrap_or_default()
+                    .pop()
+                    .unwrap()
+                    .get("transcribedSeconds")
+                    .unwrap()
+                    .as_n()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap();
 
-    if let Some(items) = query_output.items {
-        info!("User is in the database!");
-        if let Some(first_item) = items.first() {
-            info!("Getting user's seconds_transcribed");
-            if let Some(transcribed_seconds) = first_item.get("transcribedSeconds") {
-                info!("User's seconds found");
-                if let Ok(n) = transcribed_seconds.as_n() {
-                    info!("User's seconds: {}", n);
-                    if let Ok(total_transcribed) = n.parse::<i64>() {
-                        info!("User's seconds parsed: {}", total_transcribed);
-                        let message = format!(
-                            "<b>{}'s Stats</b>\nSeconds Transcribed: <code>{}</code>",
-                            username, total_transcribed
-                        );
-                        return Ok(message);
-                    }
-                }
+                Some(seconds_transcribed)
+            } else {
+                info!("Did not find a match.");
+                None
             }
         }
+        Err(e) => {
+            error!("Got an error querying table:");
+            error!("{}", e);
+            None
+        }
     }
-
-    info!("User is not in the database");
-    Ok("You don't have any stats yet. Transcribe something to get started!".to_string())
 }
+
+// async fn edit_item(client: &Client, item: Item) -> Result<(), SdkError<ExecuteStatementError>> {
+//     info!("Editing item in table");
+//     match client
+//         .execute_statement()
+//         .statement(format!(
+//             r#"UPDATE {} SET transcribedSeconds = ? WHERE userId = ?"#,
+//             item.table
+//         ))
+//         .set_parameters(Some(vec![
+//             AttributeValue::N(item.transcribed_seconds.to_string()),
+//             AttributeValue::N(item.user_id),
+//         ]))
+//         .send()
+//         .await
+//     {
+//         Ok(_) => Ok(()),
+//         Err(e) => Err(e),
+//     }
+// }
+
+async fn update_seconds(
+    client: &Client,
+    item: Item,
+) -> Result<(), SdkError<ExecuteStatementError>> {
+    info!("Updating seconds item in table");
+    match client
+        .execute_statement()
+        .statement(format!(
+            r#"UPDATE {} SET transcribedSeconds = transcribedSeconds + ? WHERE userId = ?"#,
+            item.table
+        ))
+        .set_parameters(Some(vec![
+            AttributeValue::N(item.transcribed_seconds.to_string()),
+            AttributeValue::N(item.user_id),
+        ]))
+        .send()
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+// First query the table to see if the item exists. If it does, update it; otherwise, add it.
+pub async fn smart_add_item(
+    client: &Client,
+    item: Item,
+) -> Result<(), SdkError<ExecuteStatementError>> {
+    info!("Smart adding item to table");
+    if (query_item(client, item.clone()).await).is_some() {
+        update_seconds(client, item).await
+    } else {
+        add_item(client, item).await
+    }
+}
+
+// Deletes an item from a table.
+// async fn remove_item(client: &Client, table: &str, key: &str, value: String) -> Result<(), Error> {
+//     client
+//         .execute_statement()
+//         .statement(format!(r#"DELETE FROM "{table}" WHERE "{key}" = ?"#))
+//         .set_parameters(Some(vec![AttributeValue::S(value)]))
+//         .send()
+//         .await?;
+
+//     info!("Deleted item.");
+
+//     Ok(())
+// }
