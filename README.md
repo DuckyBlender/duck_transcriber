@@ -15,6 +15,8 @@ Serverless telegram bot written in Rust which converts audio to text.
   "text": "You just sent a message!"
 }
 ```
+- [x] /tts command
+- [x] /english command
 
 ## Instructions
 
