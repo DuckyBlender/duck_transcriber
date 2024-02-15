@@ -38,7 +38,7 @@ impl std::fmt::Display for Voice {
 }
 
 // https://platform.openai.com/docs/guides/error-codes/api-errors
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[allow(dead_code)]
 pub enum OpenAIError {
     // short names

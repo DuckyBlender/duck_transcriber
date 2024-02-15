@@ -1,6 +1,6 @@
 use crate::utils::{
     dynamodb::{smart_add_item, Item, TABLE_NAME},
-    openai::{transcribe_audio, TranscribeType},
+    openai::{transcribe_audio, OpenAIError, TranscribeType},
     other::TranscriptionData,
 };
 use lambda_http::{Body, Response};
@@ -8,7 +8,7 @@ use lambda_runtime::Error;
 use mime::Mime;
 use teloxide::types::ChatAction;
 use teloxide::{net::Download, payloads::SendMessageSetters, requests::Requester, Bot};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub async fn handle_video_note_message(
     bot: Bot,
@@ -49,7 +49,17 @@ pub async fn handle_video_note_message(
         match transcribe_audio(buffer, default_mime, TranscribeType::Transcribe, duration).await {
             Ok(text) => text,
             Err(e) => {
-                info!("Failed to transcribe audio: {}", e);
+                warn!("Failed to transcribe audio: {}", e);
+                if e == OpenAIError::QuotaExceeded {
+                    // Don't send any message
+                    warn!("Failed to transcribe audio: Quota exceeded");
+                    return Ok(Response::builder()
+                        .status(200)
+                        .body(Body::Text(
+                            "Failed to transcribe audio: Quota exceeded".into(),
+                        ))
+                        .unwrap());
+                }
                 bot.send_message(
                     message.chat.id,
                     format!("Failed to transcribe audio. Please try again later. ({e})"),
