@@ -1,10 +1,10 @@
-use crate::utils::openai::{transcribe_audio, TranscribeType};
 use lambda_http::{Body, Response};
 use lambda_runtime::Error;
-use mime::Mime;
 use teloxide::types::ChatAction;
 use teloxide::{net::Download, payloads::SendMessageSetters, requests::Requester, Bot};
 use tracing::{error, info};
+
+use crate::utils::whisper::{transcribe_audio, TranscribeType};
 
 pub async fn handle_english_command(
     bot: Bot,
@@ -33,14 +33,8 @@ pub async fn handle_english_command(
             info!("Downloading file to buffer");
             bot.download_file(&file_path, &mut buffer).await?;
 
-            let voice_type: Mime = voice
-                .mime_type
-                .clone()
-                .unwrap_or("audio/ogg".parse().unwrap());
-
             // Transcribe the voice message
-            let translation =
-                transcribe_audio(buffer, voice_type, TranscribeType::Translate, duration).await;
+            let translation = transcribe_audio(buffer, TranscribeType::Translate, duration).await;
 
             match translation {
                 Ok(translation) => {
@@ -89,11 +83,8 @@ pub async fn handle_english_command(
             info!("Downloading file to buffer");
             bot.download_file(&file_path, &mut buffer).await?;
 
-            let voice_type: Mime = "audio/mp4".parse().unwrap();
-
             // Transcribe the voice message
-            let translation =
-                transcribe_audio(buffer, voice_type, TranscribeType::Translate, duration).await;
+            let translation = transcribe_audio(buffer, TranscribeType::Translate, duration).await;
 
             match translation {
                 Ok(translation) => {

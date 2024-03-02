@@ -15,7 +15,6 @@ Serverless telegram bot written in Rust which converts audio to text.
   "text": "You just sent a message!"
 }
 ```
-- [x] /tts command
 - [x] /english command
 
 ## Instructions
@@ -30,11 +29,11 @@ cd duck_transcriber
 Then, install cargo lambda. Here is more info
 https://www.cargo-lambda.info/
 
-Now that cargo lambda is installed, build the project (preferrably for ARM)
+Now that cargo lambda is installed, install some more dependencies and build the project (preferrably for ARM)
 
 ```bash
 # some dependencies (fedora)
-sudo dnf install perl-core openssl openssl-devel
+sudo dnf install perl-core openssl openssl-devel libavutil-free-devel libavformat-free-devel libavfilter-free-devel libavdevice-free-devel
 ```
 
 ```bash

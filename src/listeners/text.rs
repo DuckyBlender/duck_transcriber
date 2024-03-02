@@ -1,7 +1,6 @@
 use crate::commands::english::handle_english_command;
 use crate::commands::help::handle_help_command;
 use crate::commands::stats::handle_stats_command;
-use crate::commands::tts::handle_tts_command;
 use lambda_http::{Body, Response};
 use lambda_runtime::Error;
 use std::env;
@@ -55,7 +54,6 @@ pub async fn handle_text_message(
 
     match command {
         "/stats" => handle_stats_command(bot, message, dynamodb_client).await,
-        "/tts" => handle_tts_command(bot, message).await,
         "/english" => handle_english_command(bot, message).await,
         "/help" => handle_help_command(bot, message).await,
         _ => {

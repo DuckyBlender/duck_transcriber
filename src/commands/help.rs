@@ -12,7 +12,6 @@ pub async fn handle_help_command(
         message.chat.id,
         "Welcome to Duck Transcriber! By default, the bot will transcribe every voice message and video note up to 5 minutes. Here are the available commands:
 
-<code>/tts</code> - Generate a voice message from argument (reply to a message to use that text)
 <code>/english</code> - Translate a voice message to English (reply to a voice message to use this command)",
     )
     .reply_to_message_id(message.id)
