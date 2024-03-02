@@ -15,24 +15,24 @@ edition = "2021"
 # and it will keep the alphabetic ordering for you.
 
 [dependencies]
-lambda_http = "0.9.2"
-lambda_runtime = "0.9.1"
-reqwest = { version = "0.11.22", features = [
+lambda_http = "0.10"
+lambda_runtime = "0.10"
+reqwest = { version = "0.11", features = [
     "multipart",
     "json",
     "native-tls-vendored",
 ], default-features = false }
-serde_json = "1.0.108"
+serde_json = "1.0"
 tokio = { version = "1", features = ["macros"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
 ] }
-teloxide = "0.12.2"
+teloxide = "0.12"
 mime = "0.3.17"
 rand = "0.8.5"
-aws-config = "1.1.4"
-aws-sdk-dynamodb = "1.13.0"
+aws-config = "1.1"
+aws-sdk-dynamodb = "1.16"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
