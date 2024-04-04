@@ -16,19 +16,19 @@ pub const TABLE_NAME: &str = "duck_transcriber_db";
 #[derive(Clone, Debug)]
 pub struct Item {
     pub table: String,
-    pub user_id: u64,
+    pub user_id: u64 ,
     pub transcribed_seconds: u64,
 }
 
 /// Add an item to the table.
 async fn add_item(client: &Client, item: Item) -> Result<(), SdkError<ExecuteStatementError>> {
-    info!("Adding item to table");
+    info!("Adding item to table: {:?}", item);
     match client
         .execute_statement()
         .statement(format!(
             r#"INSERT INTO {} VALUE {{
-                userId: ?,
-                transcribedSeconds: ?
+                'userId': ?,
+                'transcribedSeconds': ?
         }}"#,
             item.table,
         ))
@@ -84,25 +84,6 @@ pub async fn query_item(client: &Client, item: Item) -> Option<u64> {
     }
 }
 
-// async fn edit_item(client: &Client, item: Item) -> Result<(), SdkError<ExecuteStatementError>> {
-//     info!("Editing item in table");
-//     match client
-//         .execute_statement()
-//         .statement(format!(
-//             r#"UPDATE {} SET transcribedSeconds = ? WHERE userId = ?"#,
-//             item.table
-//         ))
-//         .set_parameters(Some(vec![
-//             AttributeValue::N(item.transcribed_seconds.to_string()),
-//             AttributeValue::N(item.user_id),
-//         ]))
-//         .send()
-//         .await
-//     {
-//         Ok(_) => Ok(()),
-//         Err(e) => Err(e),
-//     }
-// }
 
 async fn update_seconds(
     client: &Client,
@@ -131,10 +112,12 @@ pub async fn smart_add_item(
     client: &Client,
     item: Item,
 ) -> Result<(), SdkError<ExecuteStatementError>> {
-    info!("Smart adding item to table");
+    info!("Checking if user {} exists in table, and adding if not", item.user_id);
     if (query_item(client, item.clone()).await).is_some() {
+        info!("Updating seconds, because user {} already exists", item.user_id);
         update_seconds(client, item).await
     } else {
+        info!("Adding item, because user {} does not exist", item.user_id);
         add_item(client, item).await
     }
 }
@@ -144,7 +127,7 @@ pub async fn smart_add_item(
 //     client
 //         .execute_statement()
 //         .statement(format!(r#"DELETE FROM "{table}" WHERE "{key}" = ?"#))
-//         .set_parameters(Some(vec![AttributeValue::S(value)]))
+//         .set_parameters(Some(vec![AttributeValue::N(value)]))
 //         .send()
 //         .await?;
 

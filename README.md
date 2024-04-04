@@ -5,9 +5,11 @@
 Serverless telegram bot written in Rust which converts audio to text.
 
 ## Todo
+
 - [x] Complete basic bot
 - [x] Rewrite to use teloxide crate
 - [ ] Refactor bot to not send manually requests, but to respond to webhook with a request. Here is an untested example.
+
 ```json
 {
   "method": "sendMessage",
@@ -15,8 +17,10 @@ Serverless telegram bot written in Rust which converts audio to text.
   "text": "You just sent a message!"
 }
 ```
+
 - [x] /tts command
 - [x] /english command
+- [ ] Fix command recognition (`text text text /stats text` is being recognized as a command)
 
 ## Instructions
 
@@ -28,7 +32,7 @@ cd duck_transcriber
 ```
 
 Then, install cargo lambda. Here is more info
-https://www.cargo-lambda.info/
+<https://www.cargo-lambda.info/>
 
 Now that cargo lambda is installed, build the project (preferrably for ARM)
 
@@ -42,11 +46,13 @@ cargo lambda build --release --arm64
 ```
 
 Don't forget to set the .env before deploying using
+
 ```bash
 cargo lambda deploy
 ```
 
 If you just want to test just run
+
 ```bash
 cargo lambda watch
 ```

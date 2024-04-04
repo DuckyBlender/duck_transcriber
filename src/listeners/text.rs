@@ -13,12 +13,20 @@ use teloxide::types::MessageEntityKind::BotCommand;
 pub async fn handle_text_message(
     bot: Bot,
     message: teloxide::types::Message,
-    dynamodb_client: &aws_sdk_dynamodb::Client, // for /stats
+    dynamodb_client: &aws_sdk_dynamodb::Client, // for /stats command
 ) -> Result<Response<Body>, Error> {
     info!("Received text message");
 
     // Parse the command
-    let command = message.parse_entities().unwrap();
+    let command = message.parse_entities();
+    if command.is_none() {
+        info!("Ignoring photo, etc: {:?}", message);
+        return Ok(Response::builder()
+            .status(200)
+            .body(Body::from("Ignoring photo, etc"))
+            .unwrap());
+    }
+    let command = command.unwrap();
     // Check if there is a command
     if command.is_empty() {
         info!("Ignoring message: {:?}", message);
