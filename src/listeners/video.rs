@@ -114,7 +114,7 @@ pub async fn handle_video_note_message(
 
     let item = Item {
         table: TABLE_NAME.to_string(),
-        user_id: transcription_data.user_id.to_string(),
+        user_id: transcription_data.user_id,
         transcribed_seconds: transcription_data.seconds_transcribed,
     };
 

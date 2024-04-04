@@ -16,7 +16,7 @@ pub const TABLE_NAME: &str = "duck_transcriber_db";
 #[derive(Clone, Debug)]
 pub struct Item {
     pub table: String,
-    pub user_id: String,
+    pub user_id: u64,
     pub transcribed_seconds: u64,
 }
 
@@ -33,7 +33,7 @@ async fn add_item(client: &Client, item: Item) -> Result<(), SdkError<ExecuteSta
             item.table,
         ))
         .set_parameters(Some(vec![
-            AttributeValue::N(item.user_id),
+            AttributeValue::N(item.user_id.to_string()),
             AttributeValue::N(item.transcribed_seconds.to_string()),
         ]))
         .send()
@@ -51,7 +51,7 @@ pub async fn query_item(client: &Client, item: Item) -> Option<u64> {
     match client
         .execute_statement()
         .statement(format!(r#"SELECT * FROM {} WHERE userId = ?"#, item.table))
-        .set_parameters(Some(vec![AttributeValue::N(item.user_id)]))
+        .set_parameters(Some(vec![AttributeValue::N(item.user_id.to_string())]))
         .send()
         .await
     {
@@ -117,7 +117,7 @@ async fn update_seconds(
         ))
         .set_parameters(Some(vec![
             AttributeValue::N(item.transcribed_seconds.to_string()),
-            AttributeValue::N(item.user_id),
+            AttributeValue::N(item.user_id.to_string()),
         ]))
         .send()
         .await

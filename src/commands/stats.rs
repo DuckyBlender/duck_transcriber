@@ -12,7 +12,7 @@ pub async fn handle_stats_command(
     dynamodb_client: &aws_sdk_dynamodb::Client,
 ) -> Result<Response<Body>, Error> {
     // Get the user_id and username
-    let user_id = message.from().unwrap().id;
+    let user_id = message.from().unwrap().id.0;
     let username = message
         .from()
         .unwrap()
@@ -22,7 +22,7 @@ pub async fn handle_stats_command(
 
     let item = Item {
         table: TABLE_NAME.to_string(),
-        user_id: user_id.to_string(),
+        user_id: user_id,
         transcribed_seconds: 0, // not used
     };
     let seconds = query_item(dynamodb_client, item).await;
