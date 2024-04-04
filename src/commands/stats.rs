@@ -22,7 +22,7 @@ pub async fn handle_stats_command(
 
     let item = Item {
         table: TABLE_NAME.to_string(),
-        user_id: user_id,
+        user_id,
         transcribed_seconds: 0, // not used
     };
     let seconds = query_item(dynamodb_client, item).await;
