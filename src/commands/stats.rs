@@ -48,7 +48,7 @@ pub async fn handle_stats_command(
     bot.send_message(
         message.chat.id,
         format!(
-            "<b>Your stats:</b>\n- Username: <code>{}</code>\n- Transcribed seconds: <code>{}</code>",
+            "<b>Your stats:</b>\n- Username: <code>{}</code>\n- Transcribed: <code>{}s</code>",
             username, seconds
         ),
     )

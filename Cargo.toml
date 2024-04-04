@@ -15,9 +15,9 @@ edition = "2021"
 # and it will keep the alphabetic ordering for you.
 
 [dependencies]
-lambda_http = "0.10"
-lambda_runtime = "0.10"
-reqwest = { version = "0.11", features = [
+lambda_http = "0.11"
+lambda_runtime = "0.11"
+reqwest = { version = "0.12", features = [
     "multipart",
     "json",
     "native-tls-vendored",
@@ -29,10 +29,10 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
 ] }
 teloxide = "0.12"
-mime = "0.3.17"
-rand = "0.8.5"
+mime = "0.3"
+rand = "0.8"
 aws-config = "1.1"
-aws-sdk-dynamodb = "1.16"
+aws-sdk-dynamodb = "1.20"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory

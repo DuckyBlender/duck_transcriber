@@ -1,5 +1,5 @@
 use crate::utils::{
-    dynamodb::{smart_add_item, Item, TABLE_NAME},
+    dynamodb::{query_item, smart_add_item, Item, TABLE_NAME},
     openai::{transcribe_audio, OpenAIError, TranscribeType},
     other::TranscriptionData,
 };
@@ -21,6 +21,22 @@ pub async fn handle_voice_message(
         .await?;
 
     let voice_id = message.voice().unwrap().file.id.clone();
+
+    // Check if the user exceeded the lifetime limit in the database
+    let item = Item {
+        table: TABLE_NAME.to_string(),
+        user_id: message.from().unwrap().id.0,
+        transcribed_seconds: 0, // not used
+    };
+    let query = query_item(dynamodb_client, item).await;
+
+    if query.is_some() && query > Some(60 * 30) {
+        info!("User has exceeded the lifetime limit. This limit will change in the future.");
+        return Ok(Response::builder()
+            .status(200)
+            .body(Body::Text("User has exceeded the lifetime limit".into()))
+            .unwrap());
+    }
 
     // Length of the voice message
     let duration = message.voice().unwrap().duration;
