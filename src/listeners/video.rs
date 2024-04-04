@@ -45,7 +45,7 @@ pub async fn handle_video_note_message(
     bot.download_file(&file_path, &mut buffer).await?;
 
     // Send file to OpenAI Whisper for transcription
-    let mut text =
+    let text =
         match transcribe_audio(buffer, default_mime, TranscribeType::Transcribe, duration).await {
             Ok(text) => text,
             Err(e) => {
@@ -74,11 +74,6 @@ pub async fn handle_video_note_message(
                     .unwrap());
             }
         };
-
-    if text.is_empty() || text == "you" {
-        // for some reason, if nothing is said it returns "you"
-        text = "<no text>".to_string();
-    }
 
     // Send text to user
     if let Err(e) = bot

@@ -30,8 +30,16 @@ pub async fn handle_voice_message(
     };
     let query = query_item(dynamodb_client, item).await;
 
-    if query.is_some() && query > Some(60 * 30) {
-        info!("User has exceeded the lifetime limit. This limit will change in the future.");
+    if query >= Some(60 * 30) {
+        info!("User has exceeded the lifetime limit (30 minutes). This limit will change in the future.");
+        bot.send_message(
+            message.chat.id,
+            "User has exceeded the lifetime limit (30 minutes). This limit will change in the near future.",
+        )
+        .reply_to_message_id(message.id)
+        .allow_sending_without_reply(true)
+        .await?;
+
         return Ok(Response::builder()
             .status(200)
             .body(Body::Text("User has exceeded the lifetime limit".into()))
@@ -59,7 +67,7 @@ pub async fn handle_voice_message(
     bot.download_file(&file_path, &mut buffer).await?;
 
     // Send file to OpenAI Whisper for transcription
-    let mut text =
+    let text =
         match transcribe_audio(buffer, voice_type, TranscribeType::Transcribe, duration).await {
             Ok(text) => text,
             Err(e) => {
@@ -88,11 +96,6 @@ pub async fn handle_voice_message(
                     .unwrap());
             }
         };
-
-    if text.is_empty() || text == "you" {
-        // for some reason, if nothing is said it returns "you"
-        text = "<no text>".to_string();
-    }
 
     // Send text to user
     if let Err(e) = bot

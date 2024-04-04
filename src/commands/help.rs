@@ -3,6 +3,8 @@ use lambda_runtime::Error;
 use teloxide::types::ParseMode;
 use teloxide::{payloads::SendMessageSetters, requests::Requester, Bot};
 
+use crate::utils::openai::MINUTE_LIMIT;
+
 pub async fn handle_help_command(
     bot: Bot,
     message: teloxide::types::Message,
@@ -10,10 +12,10 @@ pub async fn handle_help_command(
     // Send help message
     bot.send_message(
         message.chat.id,
-        "Welcome to Duck Transcriber! By default, the bot will transcribe every voice message and video note up to 5 minutes. Here are the available commands:
+        format!("Welcome to Duck Transcriber! By default, the bot will transcribe every voice message and video note up to {} minutes. Here are the available commands:
 
 <code>/tts</code> - Generate a voice message from argument (reply to a message to use that text)
-<code>/english</code> - Translate a voice message to English (reply to a voice message to use this command)",
+<code>/english</code> - Translate a voice message to English (reply to a voice message to use this command)", MINUTE_LIMIT)
     )
     .reply_to_message_id(message.id)
     .disable_web_page_preview(true)

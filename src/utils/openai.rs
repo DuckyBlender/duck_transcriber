@@ -1,15 +1,26 @@
 use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use tracing::error;
 
-const MINUTE_LIMIT: usize = 5;
+pub const MINUTE_LIMIT: usize = 30;
 
 pub enum TranscribeType {
     Transcribe,
     Translate,
+}
+
+/// For the end part of the URL to OpenAI
+impl std::fmt::Display for TranscribeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TranscribeType::Transcribe => write!(f, "transcriptions"),
+            TranscribeType::Translate => write!(f, "translations"),
+        }
+    }
 }
 
 // dont warn about unused variants
@@ -50,6 +61,29 @@ pub enum OpenAIError {
     ServerError,
     Overloaded,
     Other(String),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct OpenAIWhisperResponse {
+    task: String,
+    language: String,
+    duration: f64,
+    text: String,
+    segments: Vec<OpenAIWhisperSegment>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct OpenAIWhisperSegment {
+    id: u32,
+    seek: u32,
+    start: f64,
+    end: f64,
+    text: String,
+    tokens: Vec<u32>,
+    temperature: f64,
+    avg_logprob: f64,
+    compression_ratio: f64,
+    no_speech_prob: f64,
 }
 
 impl std::fmt::Display for OpenAIError {
@@ -107,10 +141,7 @@ pub async fn transcribe_audio(
         .text("response_format", "verbose_json")
         .part("file", part);
 
-    let url_end = match transcribe_type {
-        TranscribeType::Transcribe => "transcriptions",
-        TranscribeType::Translate => "translations",
-    };
+    let url_end = transcribe_type.to_string();
 
     // Send file to OpenAI Whisper for transcription
     let client = reqwest::Client::new();
@@ -144,30 +175,31 @@ pub async fn transcribe_audio(
         )));
     }
 
-    // Extract text from OpenAI response
-    // Response is in verbose_json
-    let json = res
-        .json::<serde_json::Value>()
+    // Extract all of the segments
+    let res = res
+        .json::<OpenAIWhisperResponse>()
         .await
         .map_err(|err| format!("Failed to parse OpenAI response: {}", err))
         .unwrap();
 
-    // Get the text from the response
-    let text = match json["text"].as_str() {
-        Some(text) => text.to_string(),
-        None => "No text found".to_string(),
-    };
+    let mut output_text = String::new();
 
-    // Get the language from the response
-    // let language = match json["language"].as_str() {
-    //     Some(language) => language.to_string(),
-    //     None => "No language found".to_string(),
-    // };
+    // Extract all of the segments.
+    for segment in res.segments {
+        // If the no_speech_prob value is higher than 1.0 and the avg_logprob is below -1, consider this segment silent.
+        if segment.no_speech_prob >= 1.0 || segment.avg_logprob <= -1.0 {
+            // || is intentional, it gave better results
+            continue;
+        }
+        output_text += &segment.text;
+    }
 
-    // Format the output
-    // let output = format!("{}\n(Language: {})", text, language);
+    // If the output text is empty, return <no text>
+    if output_text.is_empty() {
+        return Ok("<no text>".to_string());
+    }
 
-    Ok(text)
+    Ok(output_text)
 }
 
 // this returns audio bytes
