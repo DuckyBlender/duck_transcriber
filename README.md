@@ -20,7 +20,11 @@ Serverless telegram bot written in Rust which converts audio to text.
 
 - [x] /tts command
 - [x] /english command
+- [x] /help command
 - [ ] Fix command recognition (`text text text /stats text` is being recognized as a command)
+- [ ] Remove hard limit (30 minutes) and implement a payment system (don't worry, it will be very cheap 👍)
+- [ ] Ban command (admin only)
+- [ ] Edit command (admin only)
 
 ## Instructions
 
@@ -63,4 +67,4 @@ If you think you can make this bot better, just make a pull request. I'll check 
 
 ## License
 
-Literally do whatever you want I don't care just don't blame me if it doesn't work. This is a quick project to learn about Rust Lambdas and Webhooks.
+Literally do whatever you want I don't care just don't blame me if it doesn't work. This is a project to learn about Rust Lambdas and Webhooks.
