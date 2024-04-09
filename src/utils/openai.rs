@@ -187,8 +187,7 @@ pub async fn transcribe_audio(
     // Extract all of the segments.
     for segment in res.segments {
         // If the no_speech_prob value is higher than 1.0 and the avg_logprob is below -1, consider this segment silent.
-        if segment.no_speech_prob >= 1.0 || segment.avg_logprob <= -1.0 {
-            // || is intentional, it gave better results
+        if segment.no_speech_prob > 0.6 && segment.avg_logprob < -0.4 {
             continue;
         }
         output_text += &segment.text;
