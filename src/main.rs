@@ -11,6 +11,8 @@ mod structs;
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
+    // Initialize the logger
+    env::set_var("RUST_LOG", "info");
     pretty_env_logger::init();
     log::info!("Starting throw dice bot...");
 
@@ -36,8 +38,8 @@ async fn handle_message(bot: Bot, msg: Message) -> Result<(), teloxide::RequestE
         let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
 
         let part = multipart::Part::bytes(buf)
-            .file_name("audio.mp3")
-            .mime_str("audio/mp3")
+            .file_name("audio.ogg")
+            .mime_str("audio/ogg")
             .unwrap();
 
         let form = multipart::Form::new()
@@ -57,8 +59,21 @@ async fn handle_message(bot: Bot, msg: Message) -> Result<(), teloxide::RequestE
         // Deserialize the response into a struct
         let response: OpenAIResponse = res.json().await.unwrap();
 
+        let mut full_text = String::new();
+        for segment in response.segments {
+            if segment.no_speech_prob > 0.6 && segment.avg_logprob < -0.4 {
+                continue;
+            }
+            info!("Segment (AVG_LOGPROB: {:.2} NO_SPEECH_PROB: ({:.2})): {}", segment.avg_logprob, segment.no_speech_prob, segment.text);
+            full_text.push_str(&segment.text);
+        }
+
+        if full_text.is_empty() {
+            full_text = "<no text>".to_string();
+        }
+
         // Send the response to the user
-        bot.send_message(msg.chat.id, response.text)
+        bot.send_message(msg.chat.id, full_text)
             .reply_to_message_id(msg.id)
             .disable_web_page_preview(true)
             .await?;
