@@ -8,16 +8,6 @@ Serverless telegram bot written in Rust which converts audio to text.
 
 - [x] Complete basic bot
 - [x] Rewrite to use teloxide crate
-- [ ] Refactor bot to not send manually requests, but to respond to webhook with a request. Here is an untested example.
-
-```json
-{
-  "method": "sendMessage",
-  "chat_id": <chat_id>,
-  "text": "You just sent a message!"
-}
-```
-
 - [x] /tts command
 - [x] /english command
 - [x] /help command

@@ -11,7 +11,7 @@ reqwest = { version = "0.12", features = [
     "json",
     "native-tls-vendored",
 ], default-features = false }
-serde = "1.0.197"
+serde = "1.0"
 serde_json = "1.0"
 tokio = { version = "1", features = ["macros"] }
 tracing = { version = "0.1", features = ["log"] }
@@ -21,8 +21,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 teloxide = "0.12"
 mime = "0.3"
 rand = "0.8"
-aws-config = "1.1"
-aws-sdk-dynamodb = "1.20"
+aws-config = "1.2"
+aws-sdk-dynamodb = "1.23"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory

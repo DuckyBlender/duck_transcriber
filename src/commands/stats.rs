@@ -44,12 +44,24 @@ pub async fn handle_stats_command(
     }
     let seconds = seconds.unwrap();
 
+    // Convert to hours, minutes, and seconds
+    let (hours, remainder) = (seconds / 3600, seconds % 3600);
+    let (minutes, seconds) = (remainder / 60, remainder % 60);
+
+    let time = if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    };
+
     // Send the stats to the user
     bot.send_message(
         message.chat.id,
         format!(
-            "<b>Your stats:</b>\n- Username: <code>{}</code>\n- Transcribed: <code>{}s</code>",
-            username, seconds
+            "<b>Your stats:</b>\n- Username: <code>{}</code>\n- Transcribed: <code>{}</code>",
+            username, time
         ),
     )
     .reply_to_message_id(message.id)

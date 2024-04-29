@@ -1,10 +1,9 @@
-use std::env;
-
 use crate::utils::openai::tts;
 use crate::utils::openai::Voice;
 use lambda_http::{Body, Response};
 use lambda_runtime::Error;
 use teloxide::payloads::SendVoiceSetters;
+use teloxide::requests::Request;
 use teloxide::types::ChatAction;
 use teloxide::types::InputFile;
 use teloxide::{payloads::SendMessageSetters, requests::Requester, Bot};
@@ -33,7 +32,7 @@ pub async fn handle_tts_command(
             .trim_start_matches(
                 format!(
                     "/tts@{}",
-                    env::var("TELEGRAM_BOT_USERNAME").unwrap_or_default()
+                    bot.get_me().send().await.unwrap().user.username.unwrap()
                 )
                 .as_str(),
             )

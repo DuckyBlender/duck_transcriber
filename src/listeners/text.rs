@@ -4,8 +4,10 @@ use crate::commands::stats::handle_stats_command;
 use crate::commands::tts::handle_tts_command;
 use lambda_http::{Body, Response};
 use lambda_runtime::Error;
-use std::env;
-use teloxide::Bot;
+use teloxide::{
+    requests::{Request, Requester},
+    Bot,
+};
 use tracing::info;
 
 use teloxide::types::MessageEntityKind::BotCommand;
@@ -49,7 +51,7 @@ pub async fn handle_text_message(
     let command = command.first().unwrap().text();
     let command = if command.contains('@') {
         let command = command.split('@').collect::<Vec<&str>>();
-        if command[1] == env::var("TELEGRAM_BOT_USERNAME").unwrap() {
+        if command[1] == bot.get_me().send().await.unwrap().user.username.unwrap() {
             command[0]
         } else {
             return Ok(Response::builder()
