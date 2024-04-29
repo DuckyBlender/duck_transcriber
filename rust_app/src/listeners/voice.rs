@@ -1,9 +1,11 @@
-use crate::utils::{
-    dynamodb::{query_item, smart_add_item, Item, TABLE_NAME},
-    openai::{transcribe_audio, OpenAIError, TranscribeType},
-    other::TranscriptionData,
+use crate::{
+    utils::{
+        dynamodb::{query_item, smart_add_item, Item, TABLE_NAME},
+        openai::{transcribe_audio, OpenAIError, TranscribeType},
+        other::TranscriptionData,
+    },
+    Response,
 };
-use lambda_http::{Body, Response};
 use lambda_runtime::Error;
 use mime::Mime;
 use teloxide::types::ChatAction;
@@ -14,7 +16,7 @@ pub async fn handle_voice_message(
     bot: Bot,
     message: teloxide::types::Message,
     dynamodb_client: &aws_sdk_dynamodb::Client,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     // Now that we know that the voice message is shorter then x minutes, download it and send it to openai
     // Send "typing" action to user
     bot.send_chat_action(message.chat.id, ChatAction::Typing)
@@ -40,10 +42,10 @@ pub async fn handle_voice_message(
         .allow_sending_without_reply(true)
         .await?;
 
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text("User has exceeded the lifetime limit".into()))
-            .unwrap());
+        return Ok(Response {
+                body: "User has exceeded the lifetime limit (30 minutes). This limit will change in the near future.".into(),
+            }
+        );
     }
 
     // Length of the voice message
@@ -75,12 +77,9 @@ pub async fn handle_voice_message(
                 if e == OpenAIError::QuotaExceeded {
                     // Don't send any message
                     warn!("Failed to transcribe audio: Quota exceeded");
-                    return Ok(Response::builder()
-                        .status(200)
-                        .body(Body::Text(
-                            "Failed to transcribe audio: Quota exceeded".into(),
-                        ))
-                        .unwrap());
+                    return Ok(Response {
+                        body: "Failed to transcribe audio: Quota exceeded".into(),
+                    });
                 }
                 bot.send_message(
                     message.chat.id,
@@ -90,10 +89,9 @@ pub async fn handle_voice_message(
                 .disable_web_page_preview(true)
                 .allow_sending_without_reply(true)
                 .await?;
-                return Ok(Response::builder()
-                    .status(200)
-                    .body(Body::Text(format!("Failed to transcribe audio: {e}")))
-                    .unwrap());
+                return Ok(Response {
+                    body: format!("Failed to transcribe audio: {e}"),
+                });
             }
         };
 
@@ -107,10 +105,9 @@ pub async fn handle_voice_message(
         .await
     {
         info!("Failed to send message: {}", e);
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text("Failed to send message".into()))
-            .unwrap());
+        return Ok(Response {
+            body: "Failed to send message".into(),
+        });
     }
 
     // Insert data into dynamodb
@@ -146,8 +143,7 @@ pub async fn handle_voice_message(
         }
     }
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+    Ok(Response {
+        body: "Successfully transcribed audio".into(),
+    })
 }

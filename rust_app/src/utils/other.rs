@@ -1,4 +1,6 @@
-use lambda_http::{Body, Error, Request};
+use lambda_runtime::Error;
+use lambda_runtime::LambdaEvent;
+use serde_json::Value as JsonValue;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use teloxide::{
@@ -7,14 +9,10 @@ use teloxide::{
     Bot,
 };
 
-pub async fn convert_input_to_json(input: Request) -> Result<Update, Error> {
-    let body = input.body();
-    let body_str = match body {
-        Body::Text(text) => text,
-        not => panic!("expected Body::Text(...) got {not:?}"),
-    };
-    let body_json: Update = serde_json::from_str(body_str)?;
-    Ok(body_json)
+pub async fn convert_input_to_json(input: LambdaEvent<JsonValue>) -> Result<Update, Error> {
+    let body = input.payload;
+    let update: Update = serde_json::from_value(body)?;
+    Ok(update)
 }
 
 #[rustfmt::skip]

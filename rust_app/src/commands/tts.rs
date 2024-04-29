@@ -1,6 +1,6 @@
 use crate::utils::openai::tts;
 use crate::utils::openai::Voice;
-use lambda_http::{Body, Response};
+use crate::Response;
 use lambda_runtime::Error;
 use teloxide::payloads::SendVoiceSetters;
 use teloxide::requests::Request;
@@ -12,7 +12,7 @@ use tracing::error;
 pub async fn handle_tts_command(
     bot: Bot,
     message: teloxide::types::Message,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     let text = message.text().unwrap();
 
     // CHECK FOR REPLY (WE NEED A TEXT INPUT)
@@ -49,10 +49,9 @@ pub async fn handle_tts_command(
         .disable_web_page_preview(true)
         .allow_sending_without_reply(true)
         .await?;
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text("No text provided".into()))
-            .unwrap());
+        return Ok(Response {
+            body: "Please provide some text to generate a voice message.".into(),
+        });
     }
 
     // Send "recording voice message" action to user
@@ -91,15 +90,13 @@ pub async fn handle_tts_command(
             .allow_sending_without_reply(true)
             .await?;
 
-            return Ok(Response::builder()
-                .status(200)
-                .body(Body::Text(format!("Failed to generate voice: {e}")))
-                .unwrap());
+            return Ok(Response {
+                body: format!("Failed to generate voice: {e}"),
+            });
         }
     }
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+    Ok(Response {
+        body: "Voice message sent".into(),
+    })
 }

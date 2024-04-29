@@ -1,9 +1,11 @@
-use crate::utils::{
-    dynamodb::{smart_add_item, Item, TABLE_NAME},
-    openai::{transcribe_audio, OpenAIError, TranscribeType},
-    other::TranscriptionData,
+use crate::{
+    utils::{
+        dynamodb::{smart_add_item, Item, TABLE_NAME},
+        openai::{transcribe_audio, OpenAIError, TranscribeType},
+        other::TranscriptionData,
+    },
+    Response,
 };
-use lambda_http::{Body, Response};
 use lambda_runtime::Error;
 use mime::Mime;
 use teloxide::types::ChatAction;
@@ -14,16 +16,15 @@ pub async fn handle_video_note_message(
     bot: Bot,
     message: teloxide::types::Message,
     dynamodb_client: &aws_sdk_dynamodb::Client,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     // Check if the video note is present
     let video_note = if let Some(video_note) = message.video_note() {
         video_note
     } else {
         info!("Message is not a video note");
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text("Message is not a video note".into()))
-            .unwrap());
+        return Ok(Response {
+            body: "Message is not a video note".into(),
+        });
     };
 
     // Send "typing" action to user
@@ -53,12 +54,9 @@ pub async fn handle_video_note_message(
                 if e == OpenAIError::QuotaExceeded {
                     // Don't send any message
                     warn!("Failed to transcribe audio: Quota exceeded");
-                    return Ok(Response::builder()
-                        .status(200)
-                        .body(Body::Text(
-                            "Failed to transcribe audio: Quota exceeded".into(),
-                        ))
-                        .unwrap());
+                    return Ok(Response {
+                        body: "Failed to transcribe audio: Quota exceeded".into(),
+                    });
                 }
                 bot.send_message(
                     message.chat.id,
@@ -68,10 +66,9 @@ pub async fn handle_video_note_message(
                 .allow_sending_without_reply(true)
                 .disable_web_page_preview(true)
                 .await?;
-                return Ok(Response::builder()
-                    .status(200)
-                    .body(Body::Text(format!("Failed to transcribe audio: {e}")))
-                    .unwrap());
+                return Ok(Response {
+                    body: format!("Failed to transcribe audio: {e}"),
+                });
             }
         };
 
@@ -85,10 +82,9 @@ pub async fn handle_video_note_message(
         .await
     {
         info!("Failed to send message: {}", e);
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text("Failed to send message".into()))
-            .unwrap());
+        return Ok(Response {
+            body: "Failed to send message".into(),
+        });
     }
 
     // Insert data into dynamodb
@@ -120,17 +116,13 @@ pub async fn handle_video_note_message(
                 "Failed to insert video note transcription data into dynamodb: {}",
                 e
             );
-            return Ok(Response::builder()
-                .status(200)
-                .body(Body::Text(
-                    "Failed to insert video note transcription data into dynamodb".into(),
-                ))
-                .unwrap());
+            return Ok(Response {
+                body: "Failed to insert video note transcription data into dynamodb".into(),
+            });
         }
     }
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+    Ok(Response {
+        body: "Successfully transcribed video note".into(),
+    })
 }

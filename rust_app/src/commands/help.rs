@@ -1,14 +1,14 @@
-use lambda_http::{Body, Response};
 use lambda_runtime::Error;
 use teloxide::types::ParseMode;
 use teloxide::{payloads::SendMessageSetters, requests::Requester, Bot};
 
 use crate::utils::openai::MINUTE_LIMIT;
+use crate::Response;
 
 pub async fn handle_help_command(
     bot: Bot,
     message: teloxide::types::Message,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     // Send help message
     bot.send_message(
         message.chat.id,
@@ -23,8 +23,7 @@ pub async fn handle_help_command(
     .parse_mode(ParseMode::Html)
     .await?;
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+    Ok(Response {
+        body: "Help message sent".into(),
+    })
 }

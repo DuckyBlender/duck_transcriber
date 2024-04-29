@@ -1,28 +1,26 @@
 use super::other::{convert_input_to_json, MessageInfo};
-use crate::listeners::{
-    text::handle_text_message, video::handle_video_note_message, voice::handle_voice_message,
+use crate::{
+    listeners::{
+        text::handle_text_message, video::handle_video_note_message, voice::handle_voice_message,
+    }, Response,
 };
-use lambda_http::{Body, Request, Response};
-use lambda_runtime::Error;
+use lambda_runtime::{Error, LambdaEvent};
+use serde_json::Value as JsonValue;
 use teloxide::{types::UpdateKind, Bot};
 use tracing::info;
 
 pub async fn handle_telegram_request(
-    req: Request,
+    req: LambdaEvent<JsonValue>,
     bot: &Bot,
     dynamodb_client: &aws_sdk_dynamodb::Client,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     // set the default
     let update = convert_input_to_json(req).await;
     if let Err(e) = update {
         info!("Failed to convert input to json: {}", e);
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text(format!(
-                "Failed to convert input to json: {}",
-                e
-            )))
-            .unwrap());
+        return Ok(Response {
+            body: "Failed to convert input to json".to_string(),
+        });
     };
 
     // safe to unwrap
@@ -52,20 +50,18 @@ pub async fn handle_telegram_request(
                 } => handle_video_note_message(bot.clone(), message, dynamodb_client).await,
                 _ => {
                     info!("Received unsupported message");
-                    Ok(Response::builder()
-                        .status(200)
-                        .body(Body::Text("Received unsupported message".into()))
-                        .unwrap())
+                    Ok(Response {
+                        body: "Received unsupported message".to_string(),
+                    })
                 }
             }
         }
         // If the update is not a message
         _ => {
             info!("Update is not a message");
-            Ok(Response::builder()
-                .status(200)
-                .body(Body::Text("Update is not a message".into()))
-                .unwrap())
+            Ok(Response {
+                body: "Update is not a message".to_string(),
+            })
         }
     }
 }

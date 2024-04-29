@@ -1,8 +1,7 @@
-use crate::commands::english::handle_english_command;
 use crate::commands::help::handle_help_command;
 use crate::commands::stats::handle_stats_command;
 use crate::commands::tts::handle_tts_command;
-use lambda_http::{Body, Response};
+use crate::{commands::english::handle_english_command, Response};
 use lambda_runtime::Error;
 use teloxide::{
     requests::{Request, Requester},
@@ -16,34 +15,31 @@ pub async fn handle_text_message(
     bot: Bot,
     message: teloxide::types::Message,
     dynamodb_client: &aws_sdk_dynamodb::Client, // for /stats command
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     info!("Received text message");
 
     // Parse the command
     let command = message.parse_entities();
     if command.is_none() {
         info!("Ignoring photo, etc: {:?}", message);
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::from("Ignoring photo, etc"))
-            .unwrap());
+        return Ok(Response {
+            body: "Ignoring photo, etc".into(),
+        });
     }
     let command = command.unwrap();
     // Check if there is a command
     if command.is_empty() {
         info!("Ignoring message: {:?}", message);
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::from("Ignoring message"))
-            .unwrap());
+        return Ok(Response {
+            body: "Ignoring message".into(),
+        });
     }
     // Check if the first arguemnt is a command
     if *command.first().unwrap().kind() != BotCommand {
         info!("Ignoring message: {:?}", message);
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::from("Ignoring message"))
-            .unwrap());
+        return Ok(Response {
+            body: "Ignoring message".into(),
+        });
     }
     // Check which command was sent
     // First we need to check if there is a @ in the command
@@ -54,10 +50,9 @@ pub async fn handle_text_message(
         if command[1] == bot.get_me().send().await.unwrap().user.username.unwrap() {
             command[0]
         } else {
-            return Ok(Response::builder()
-                .status(200)
-                .body(Body::from("Command not for this bot"))
-                .unwrap());
+            return Ok(Response {
+                body: "Ignoring message: Command not for this bot".into(),
+            });
         }
     } else {
         command
@@ -70,10 +65,9 @@ pub async fn handle_text_message(
         "/help" => handle_help_command(bot, message).await,
         _ => {
             info!("Ignoring message: {:?}", message);
-            Ok(Response::builder()
-                .status(200)
-                .body(Body::from("Ignoring message"))
-                .unwrap())
+            Ok(Response {
+                body: "Ignoring message".into(),
+            })
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::utils::openai::{transcribe_audio, TranscribeType};
-use lambda_http::{Body, Response};
+use crate::Response;
 use lambda_runtime::Error;
 use mime::Mime;
 use teloxide::types::ChatAction;
@@ -9,7 +9,7 @@ use tracing::{error, info};
 pub async fn handle_english_command(
     bot: Bot,
     message: teloxide::types::Message,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     // WE NEED AN AUDIO INPUT HERE
     // USE THE AUDIO FROM THE REPLY
     if let Some(reply) = message.reply_to_message() {
@@ -63,10 +63,9 @@ pub async fn handle_english_command(
                     .allow_sending_without_reply(true)
                     .await?;
 
-                    return Ok(Response::builder()
-                        .status(200)
-                        .body(Body::Text(format!("Failed to translate audio: {e}")))
-                        .unwrap());
+                    return Ok(Response {
+                        body: format!("Failed to translate audio: {e}"),
+                    });
                 }
             }
         } else if let Some(video_note) = reply.video_note() {
@@ -117,10 +116,9 @@ pub async fn handle_english_command(
                     .disable_web_page_preview(true)
                     .await?;
 
-                    return Ok(Response::builder()
-                        .status(200)
-                        .body(Body::Text(format!("Failed to translate audio: {e}")))
-                        .unwrap());
+                    return Ok(Response {
+                        body: format!("Failed to translate audio: {e}"),
+                    });
                 }
             }
         } else {
@@ -144,8 +142,7 @@ pub async fn handle_english_command(
         .await?;
     }
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+    Ok(Response {
+        body: "Translation sent".into(),
+    })
 }

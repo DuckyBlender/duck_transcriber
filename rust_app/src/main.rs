@@ -1,22 +1,29 @@
 use std::env;
 
 use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
-use lambda_http::{run, service_fn, Error};
+use lambda_runtime::{run, service_fn, Error};
+
+use serde::Serialize;
 use teloxide::Bot;
 use tracing::error;
-use tracing_subscriber::fmt;
 use utils::{other::set_commands, telegram::handle_telegram_request};
 
 mod commands;
 mod listeners;
 mod utils;
 
+#[derive(Serialize)]
+struct Response {
+    body: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize tracing for logging
-    fmt()
+    tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
+        // disable printing the name of the module in every log line.
         .with_target(false)
+        // disabling time is handy because CloudWatch will add the ingestion time.
         .without_time()
         .init();
 
@@ -36,7 +43,6 @@ async fn main() -> Result<(), Error> {
         .await;
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&config);
 
-    // Run the Lambda function
     run(service_fn(|req| {
         handle_telegram_request(req, &bot, &dynamodb_client)
     }))

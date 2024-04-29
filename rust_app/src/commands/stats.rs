@@ -1,16 +1,18 @@
 // use crate::utils::dynamodb::stats;
-use lambda_http::{Body, Response};
 use lambda_runtime::Error;
 use teloxide::{payloads::SendMessageSetters, requests::Requester, types::ParseMode, Bot};
 use tracing::info;
 
-use crate::utils::dynamodb::{query_item, Item, TABLE_NAME};
+use crate::{
+    utils::dynamodb::{query_item, Item, TABLE_NAME},
+    Response,
+};
 
 pub async fn handle_stats_command(
     bot: Bot,
     message: teloxide::types::Message,
     dynamodb_client: &aws_sdk_dynamodb::Client,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response, Error> {
     // Get the user_id and username
     let user_id = message.from().unwrap().id.0;
     let username = message
@@ -37,10 +39,10 @@ pub async fn handle_stats_command(
         .disable_web_page_preview(true)
         .allow_sending_without_reply(true)
         .await?;
-        return Ok(Response::builder()
-            .status(200)
-            .body(Body::Text("No stats".into()))
-            .unwrap());
+        return Ok(Response {
+            body: "You have no stats. Start sending voice messages or video notes to get some!"
+                .into(),
+        });
     }
     let seconds = seconds.unwrap();
 
@@ -70,8 +72,7 @@ pub async fn handle_stats_command(
     .parse_mode(ParseMode::Html)
     .await?;
 
-    Ok(Response::builder()
-        .status(200)
-        .body(Body::Text("OK".into()))
-        .unwrap())
+    Ok(Response {
+        body: format!("Stats for user {} sent", username),
+    })
 }

@@ -10,13 +10,13 @@ use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::Client;
 use tracing::{error, info};
 
-pub const TABLE_NAME: &str = "duck_transcriber_db";
+pub const TABLE_NAME: &str = "duck-transcriber-db";
 
 /// A struct for the arguments and returns from add_item and query_item.
 #[derive(Clone, Debug)]
 pub struct Item {
     pub table: String,
-    pub user_id: u64 ,
+    pub user_id: u64,
     pub transcribed_seconds: u64,
 }
 
@@ -84,7 +84,6 @@ pub async fn query_item(client: &Client, item: Item) -> Option<u64> {
     }
 }
 
-
 async fn update_seconds(
     client: &Client,
     item: Item,
@@ -112,9 +111,15 @@ pub async fn smart_add_item(
     client: &Client,
     item: Item,
 ) -> Result<(), SdkError<ExecuteStatementError>> {
-    info!("Checking if user {} exists in table, and adding if not", item.user_id);
+    info!(
+        "Checking if user {} exists in table, and adding if not",
+        item.user_id
+    );
     if (query_item(client, item.clone()).await).is_some() {
-        info!("Updating seconds, because user {} already exists", item.user_id);
+        info!(
+            "Updating seconds, because user {} already exists",
+            item.user_id
+        );
         update_seconds(client, item).await
     } else {
         info!("Adding item, because user {} does not exist", item.user_id);
