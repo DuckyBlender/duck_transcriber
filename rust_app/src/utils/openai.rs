@@ -1,10 +1,9 @@
 use mime::Mime;
-use reqwest::header::HeaderMap;
-use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::env;
 use tracing::error;
+
+
 
 pub const MINUTE_LIMIT: usize = 30;
 
@@ -116,18 +115,6 @@ pub async fn transcribe_audio(
         )));
     }
 
-    // Set OpenAI API headers
-    let mut headers: HeaderMap = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        format!(
-            "Bearer {}",
-            env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found")
-        )
-        .parse()
-        .unwrap(),
-    );
-
     let file_name = voice_type.subtype().to_string(); // "mpeg"
     let mime_str = voice_type.to_string(); // "audio/mpeg"
 
@@ -147,8 +134,8 @@ pub async fn transcribe_audio(
     let client = reqwest::Client::new();
     let res = client
         .post(format!("https://api.openai.com/v1/audio/{}", url_end))
+        .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap())
         .multipart(form)
-        .headers(headers)
         .send()
         .await
         .map_err(|err| {
@@ -206,13 +193,7 @@ pub async fn tts(prompt: String, voice: Voice) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::new();
     let res = client
         .post("https://api.openai.com/v1/audio/speech")
-        .header(
-            "Authorization",
-            format!(
-                "Bearer {}",
-                env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found")
-            ),
-        )
+        .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap())
         .json(&json!({
             "model": "tts-1",
             "input": prompt,

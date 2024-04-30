@@ -26,7 +26,7 @@ async fn add_item(client: &Client, item: Item) -> Result<(), SdkError<ExecuteSta
     match client
         .execute_statement()
         .statement(format!(
-            r#"INSERT INTO {} VALUE {{
+            r#"INSERT INTO "{}" VALUE {{
                 'userId': ?,
                 'transcribedSeconds': ?
         }}"#,
@@ -50,7 +50,10 @@ pub async fn query_item(client: &Client, item: Item) -> Option<u64> {
     info!("Querying table for item");
     match client
         .execute_statement()
-        .statement(format!(r#"SELECT * FROM {} WHERE userId = ?"#, item.table))
+        .statement(format!(
+            r#"SELECT * FROM "{}" WHERE userId = ?"#,
+            item.table
+        ))
         .set_parameters(Some(vec![AttributeValue::N(item.user_id.to_string())]))
         .send()
         .await
@@ -92,7 +95,7 @@ async fn update_seconds(
     match client
         .execute_statement()
         .statement(format!(
-            r#"UPDATE {} SET transcribedSeconds = transcribedSeconds + ? WHERE userId = ?"#,
+            r#"UPDATE "{}" SET transcribedSeconds = transcribedSeconds + ? WHERE userId = ?"#,
             item.table
         ))
         .set_parameters(Some(vec![

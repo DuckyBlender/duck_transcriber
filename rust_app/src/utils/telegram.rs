@@ -2,11 +2,13 @@ use super::other::{convert_input_to_json, MessageInfo};
 use crate::{
     listeners::{
         text::handle_text_message, video::handle_video_note_message, voice::handle_voice_message,
-    }, Response,
+    },
+    Response,
 };
 use lambda_runtime::{Error, LambdaEvent};
 use serde_json::Value as JsonValue;
 use teloxide::{types::UpdateKind, Bot};
+use tracing::error;
 use tracing::info;
 
 pub async fn handle_telegram_request(
@@ -17,7 +19,7 @@ pub async fn handle_telegram_request(
     // set the default
     let update = convert_input_to_json(req).await;
     if let Err(e) = update {
-        info!("Failed to convert input to json: {}", e);
+        error!("Failed to convert input to json: {}", e);
         return Ok(Response {
             body: "Failed to convert input to json".to_string(),
         });

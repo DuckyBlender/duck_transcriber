@@ -1,6 +1,5 @@
 use lambda_runtime::Error;
 use lambda_runtime::LambdaEvent;
-use serde_json::Value as JsonValue;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use teloxide::{
@@ -8,10 +7,38 @@ use teloxide::{
     types::{BotCommand, Update},
     Bot,
 };
+use tracing::error;
 
-pub async fn convert_input_to_json(input: LambdaEvent<JsonValue>) -> Result<Update, Error> {
-    let body = input.payload;
-    let update: Update = serde_json::from_value(body)?;
+pub async fn convert_input_to_json(input: LambdaEvent<serde_json::Value>) -> Result<Update, Error> {
+    // The serde_json::Value is an object. To get the telegram information we need the body, which is a string (JSON)
+    if input.payload.is_null() {
+        error!("Payload is null");
+        return Err(Error::from("Payload is null"));
+    }
+
+    // Check if the serde_json::Value is a JSON object
+    if !input.payload.is_object() {
+        error!("Payload is not a JSON object");
+        return Err(Error::from("Payload is not a JSON object".to_string()));
+    }
+
+    // Get the body of the JSON object
+    let body = input.payload.get("body").ok_or_else(|| {
+        error!("Failed to get body from input");
+        Error::from("Failed to get body from input")
+    })?;
+
+    // Convert to str
+    let body = body.as_str().ok_or_else(|| {
+        error!("Failed to convert body to str");
+        Error::from("Failed to convert body to str")
+    })?;
+
+    let update: Update = serde_json::from_str(body).map_err(|e| {
+        error!("Failed to convert body to json: {}", e);
+        Error::from("Failed to convert body to json".to_string())
+    })?;
+
     Ok(update)
 }
 
