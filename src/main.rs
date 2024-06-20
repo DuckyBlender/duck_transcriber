@@ -10,7 +10,7 @@ use tracing_subscriber::fmt;
 
 mod transcribe;
 
-const MAX_DURATION: u32 = 5 * 60;
+const MAX_DURATION: u32 = 10 * 60;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -133,12 +133,15 @@ async fn handler(
     }
 
     // Transcribe the message
+    info!(
+        "Transcribing audio! Duration: {} | Mime: {:?}",
+        duration, mime
+    );
     let transcription = transcribe::transcribe(audio_bytes, mime).await;
 
     let transcription = match transcription {
         Ok(transcription) => transcription,
         Err(e) => {
-            // err is OpenAIError
             error!("Failed to transcribe audio: {:?}", e);
             bot.send_message(
                 message.chat.id,

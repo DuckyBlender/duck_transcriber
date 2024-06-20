@@ -8,21 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::error;
 
-// https://platform.openai.com/docs/guides/error-codes/api-errors
-#[derive(Debug, PartialEq)]
-#[allow(dead_code)]
-pub enum OpenAIError {
-    // short names
-    InvalidAuth,
-    IncorrectAPIKey,
-    NotInOrg,
-    RateLimit,
-    QuotaExceeded,
-    ServerError,
-    Overloaded,
-    Other(String),
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 struct OpenAIWhisperResponse {
     task: String,
@@ -46,29 +31,14 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-impl std::fmt::Display for OpenAIError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            OpenAIError::InvalidAuth => write!(f, "Invalid authentication"),
-            OpenAIError::IncorrectAPIKey => write!(f, "Incorrect API key"),
-            OpenAIError::NotInOrg => write!(f, "Not in an organization"),
-            OpenAIError::RateLimit => write!(f, "Rate limit exceeded or quota exceeded"),
-            OpenAIError::QuotaExceeded => write!(f, "Quota exceeded or rate limited"),
-            OpenAIError::ServerError => write!(f, "Server error"),
-            OpenAIError::Overloaded => write!(f, "Server overloaded"),
-            OpenAIError::Other(err) => write!(f, "{}", err),
-        }
-    }
-}
-
-pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, OpenAIError> {
+pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
         format!(
             "Bearer {}",
-            env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found")
+            env::var("GROQ_API_KEY").expect("GROQ_API_KEY not found")
         )
         .parse()
         .unwrap(),
@@ -80,41 +50,34 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, OpenAIErr
         .mime_str(mime.as_ref())
         .unwrap();
     let form = reqwest::multipart::Form::new()
-        .text("model", "whisper-1")
+        .text("model", "whisper-large-v3")
         .text("response_format", "verbose_json")
         .part("file", part);
 
-    // Send file to OpenAI Whisper for transcription
+    // Send file to Groq Whisper for transcription
     let client = reqwest::Client::new();
     let res = client
-        .post("https://api.openai.com/v1/audio/transcriptions".to_string())
+        .post("https://api.groq.com/openai/v1/audio/transcriptions".to_string())
         .multipart(form)
         .headers(headers)
         .send()
         .await
         .map_err(|err| {
             error!("Failed to send request to OpenAI: {}", err);
-            OpenAIError::Other(format!("Failed to send request to OpenAI: {}", err))
+            format!("Failed to send request to OpenAI: {}", err)
         })?;
 
     // IT'S EXTREMELY IMPORTANT TO HANDLE EVERY ERROR FROM HERE. WE CANNOT RETURN STATUS OTHER THEN 200, TELEGRAM IS GOING TO KEEP SENDING THE WEBHOOK AGAIN CREATING AN INFINITE LOOP.
-    // Check if OpenAI returned an error
+    // Check if Groq returned an error
     let status = res.status();
     if !status.is_success() {
-        if status.as_u16() == 429 {
-            // quota exceeded or rate limited (unlikely)
-            return Err(OpenAIError::QuotaExceeded);
-        }
         let json = res
             .json::<serde_json::Value>()
             .await
             .map_err(|err| format!("Failed to parse OpenAI error response: {}", err))
             .unwrap();
-        error!("OpenAI returned an error: {:?}", json);
-        return Err(OpenAIError::Other(format!(
-            "OpenAI returned an error: {:?}",
-            json
-        )));
+        error!("Groq returned an error: {:?}", json);
+        return Err(format!("Groq returned an error: {}", json["error"]["type"]));
     }
 
     // Extract all of the segments

@@ -2,19 +2,7 @@
 
 ## Description
 
-Serverless telegram bot written in Rust which converts audio to text.
-
-## Todo
-
-- [x] Complete basic bot
-- [x] Rewrite to use teloxide crate
-- [x] /tts command
-- [x] /english command
-- [x] /help command
-- [ ] Fix command recognition (`text text text /stats text` is being recognized as a command)
-- [ ] Remove hard limit (30 minutes) and implement a payment system (don't worry, it will be very cheap 👍)
-- [ ] Ban command (admin only)
-- [ ] Edit command (admin only)
+Serverless telegram bot written in Rust which converts audio to text using the groq API
 
 ## Instructions
 
@@ -29,11 +17,6 @@ Then, install cargo lambda. Here is more info
 <https://www.cargo-lambda.info/>
 
 Now that cargo lambda is installed, build the project (preferrably for ARM)
-
-```bash
-# some dependencies (fedora)
-sudo dnf install perl-core openssl openssl-devel
-```
 
 ```bash
 cargo lambda build --release --arm64
