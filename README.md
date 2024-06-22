@@ -23,7 +23,7 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 -------------------------
 
 * `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
-* `GROQ_API_KEY`: the API key for the OpenAI Whisper API.
+* `GROQ_API_KEY`: the API key for the Groq Whisper API.
 
 **Deployment**
 ------------
