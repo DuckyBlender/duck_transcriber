@@ -10,7 +10,7 @@ use tracing_subscriber::fmt;
 
 mod transcribe;
 
-const MAX_DURATION: u32 = 10 * 60;
+const MAX_DURATION: u32 = 30 * 60;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -123,6 +123,7 @@ async fn handler(
             format!("Duration is above {} minutes", MAX_DURATION * 60),
         )
         .reply_to_message_id(message.id)
+        .disable_notification(true)
         .await
         .unwrap();
 
@@ -147,6 +148,8 @@ async fn handler(
                 message.chat.id,
                 format!("Failed to transcribe audio: {:?}", e),
             )
+            .disable_web_page_preview(true)
+            .disable_notification(true)
             .reply_to_message_id(message.id)
             .await
             .unwrap();
@@ -161,6 +164,8 @@ async fn handler(
     info!("Transcription: {}", transcription);
     bot.send_message(message.chat.id, transcription)
         .reply_to_message_id(message.id)
+        .disable_web_page_preview(true)
+        .disable_notification(true)
         .await
         .unwrap();
 

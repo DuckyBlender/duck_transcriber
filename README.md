@@ -1,43 +1,58 @@
-# Rust AWS Lambda Telegram Bot
+**duck_transcriber**
+=====================================
 
-## Description
+This is a serverless Telegram bot that transcribes voice, audio, and video notes sent to it using the Groq Whisper API.
 
-Serverless telegram bot written in Rust which converts audio to text using the groq API
+**How it works**
+---------------
 
-## Instructions
+1. The bot receives a voice, audio, or video note message from a user.
+2. It downloads the file from Telegram and checks its duration. If the duration is above x minutes, it sends a warning message to the user and exits.
+3. It transcribes the audio using the Groq Whisper API.
+4. It sends the transcription back to the user as a text message.
 
-To get a development environment running, clone the repository and navigate into the directory:
+**Technical Details**
+-------------------
 
-```bash
-git clone https://github.com/DuckyBlender/duck_transcriber
-cd duck_transcriber
-```
+* The bot is built using the `teloxide` crate for interacting with the Telegram API.
+* The transcription is done using the `reqwest` crate to send a request to the Groq Whisper API.
+* The bot is deployed as a serverless function using AWS Lambda.
+* The code is written in Rust and uses the `lambda_http` crate to handle HTTP requests.
 
-Then, install cargo lambda. Here is more info
-<https://www.cargo-lambda.info/>
+**Environment Variables**
+-------------------------
 
-Now that cargo lambda is installed, build the project (preferrably for ARM)
+* `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
+* `GROQ_API_KEY`: the API key for the OpenAI Whisper API.
+
+**Deployment**
+------------
+
+Before deploying this bot, ensure you have the following prerequisites installed:
+
+* **AWS CLI**: Follow the instructions [here](https://aws.amazon.com/cli/) to install the AWS Command Line Interface.
+* **cargo-lambda**: Install `cargo-lambda` (not with cargo, it doesn't support cross compilation) by following the instructions [here](https://www.cargo-lambda.info/guide/getting-started.html)
+
+To deploy this bot, you'll need to set up an AWS Lambda function and configure it to run this code. You'll also need to set up a Telegram bot and obtain a bot token.
+
+To build:
 
 ```bash
 cargo lambda build --release --arm64
 ```
 
-Don't forget to set the .env before deploying using
+To deploy:
 
 ```bash
 cargo lambda deploy
 ```
 
-If you just want to test just run
+**License**
+-------
 
-```bash
-cargo lambda watch
-```
+This project is licensed under the MIT License. See the `LICENSE` file for details.
 
-## Contributing
+**Contributing**
+------------
 
-If you think you can make this bot better, just make a pull request. I'll check it out.
-
-## License
-
-Literally do whatever you want I don't care just don't blame me if it doesn't work. This is a project to learn about Rust Lambdas and Webhooks.
+Contributions are welcome! If you'd like to help improve this bot, please open a pull request with your changes.
