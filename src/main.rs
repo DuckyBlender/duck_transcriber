@@ -24,6 +24,11 @@ async fn main() -> Result<(), Error> {
     // Setup telegram bot (we do it here because this place is a cold start)
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set!"));
 
+    // Set commands
+    bot.set_my_commands(vec![])
+        .await
+        .expect("Failed to set commands");
+
     // Run the Lambda function
     run(service_fn(|req| handler(req, &bot))).await
 }
