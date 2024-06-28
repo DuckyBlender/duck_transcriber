@@ -54,7 +54,6 @@ async fn handler(
     let message = match update.kind {
         Message(message) => {
             if message.voice().is_none()
-                && message.audio().is_none()
                 && message.video_note().is_none()
             {
                 debug!("Received non-voice, non-audio, non-video note message");
@@ -97,13 +96,6 @@ async fn handler(
         bot.download_file(&file.path, &mut audio_bytes)
             .await
             .unwrap();
-    // } else if let Some(audio) = message.audio() {
-    //     let file_id = &audio.file.id;
-    //     let file = bot.get_file(file_id).await.unwrap();
-    //     mime = audio.mime_type.clone().unwrap_or(Mime::from_str("audio/ogg").unwrap());
-    //     bot.download_file(&file.path, &mut audio_bytes)
-    //         .await
-    //         .unwrap();
     } else if let Some(video_note) = message.video_note() {
         let file_id = &video_note.file.id;
         let file = bot.get_file(file_id).await.unwrap();
