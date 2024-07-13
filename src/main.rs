@@ -16,7 +16,7 @@ const MAX_DURATION: u32 = 30 * 60;
 async fn main() -> Result<(), Error> {
     // Initialize tracing for logging
     fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .without_time()
         .init();
@@ -53,9 +53,7 @@ async fn handler(
     // Make sure the message is a voice, audio or video note
     let message = match update.kind {
         Message(message) => {
-            if message.voice().is_none()
-                && message.video_note().is_none()
-            {
+            if message.voice().is_none() && message.video_note().is_none() {
                 debug!("Received non-voice, non-audio, non-video note message");
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -85,6 +83,9 @@ async fn handler(
 
     // Check if the message is a voice, audio or video note
     if let Some(voice) = message.voice() {
+        let filemeta = &voice.file;
+        info!("Received voice message: {:?}", filemeta);
+
         let file_id = &voice.file.id;
         let file = bot.get_file(file_id).await.unwrap();
         // default is ogg
@@ -97,6 +98,8 @@ async fn handler(
             .await
             .unwrap();
     } else if let Some(video_note) = message.video_note() {
+        let filemeta = &video_note.file;
+        info!("Received video note message: {:?}", filemeta);
         let file_id = &video_note.file.id;
         let file = bot.get_file(file_id).await.unwrap();
         mime = Mime::from_str("video/mp4").unwrap();
@@ -159,12 +162,21 @@ async fn handler(
 
     // Send the transcription to the user
     info!("Transcription: {}", transcription);
-    bot.send_message(message.chat.id, transcription)
+    let bot_msg = bot
+        .send_message(message.chat.id, transcription.clone())
         .reply_to_message_id(message.id)
         .disable_web_page_preview(true)
         .disable_notification(true)
         .await
         .unwrap();
+
+    if transcription == "<no text>" {
+        // Wait for 3 seconds and delete the message
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        bot.delete_message(message.chat.id, bot_msg.id)
+            .await
+            .unwrap();
+    }
 
     Ok(lambda_http::Response::builder()
         .status(200)
@@ -182,3 +194,4 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
     debug!("Parsed webhook: {:?}", body_json);
     Ok(body_json)
 }
+

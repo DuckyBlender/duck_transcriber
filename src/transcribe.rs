@@ -76,8 +76,18 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
             .await
             .map_err(|err| format!("Failed to parse OpenAI error response: {}", err))
             .unwrap();
+
+        // Object {"error": Object {"code": String("rate_limit_exceeded"), "message": String("Rate limit reached for model `whisper-large-v3` in organization `org_01htnj6w5pf0za49my0yj0sje5` on seconds of audio per hour (ASPH): Limit 7200, Used 6816, Requested 607. Please try again in 1m51.463s. Visit https://console.groq.com/docs/rate-limits for more information."), "type": String("seconds")}}
+        if json["error"]["code"] == "rate_limit_exceeded" {
+            let wait_for = parse_groq_ratelimit_error(json["error"]["message"].as_str().unwrap()).await.unwrap();
+            return Err(format!(
+                "Rate limit reached. Please try again in {} seconds.",
+                wait_for
+            ));
+        }
+
         error!("Groq returned an error: {:?}", json);
-        return Err(format!("Groq returned an error: {}", json["error"]["type"]));
+        return Err(format!("Groq returned an error: {}", json["error"]["code"]));
     }
 
     // Extract all of the segments
@@ -104,4 +114,12 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
     }
 
     Ok(output_text)
+}
+
+pub async fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
+    let re = regex::Regex::new(r"try again in (\d+)m(\d+\.?\d*)s").unwrap();
+    let cap = re.captures(message)?;
+    let minutes = cap[1].parse::<u32>().unwrap();
+    let seconds = cap[2].parse::<f64>().unwrap().round() as u32;
+    Some(minutes * 60 + seconds)
 }
