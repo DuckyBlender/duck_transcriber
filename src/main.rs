@@ -1,7 +1,9 @@
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
 use std::env;
+use std::io::Write;
 use std::str::FromStr;
+use std::time::Instant;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::types::UpdateKind::Message;
 use teloxide::{net::Download, requests::Requester, types::Update, Bot};
@@ -108,7 +110,7 @@ async fn handler(
             .await
             .unwrap();
     } else {
-        debug!("Received non-voice, non-audio, non-video note message");
+        debug!("Received non-voice, non-video note message");
         return Ok(lambda_http::Response::builder()
             .status(200)
             .body("".into())
@@ -133,32 +135,60 @@ async fn handler(
             .unwrap());
     }
 
-    // Transcribe the message
+    // Convert the audio
     info!(
-        "Transcribing audio! Duration: {} | Mime: {:?}",
+        "Converting audio! Duration: {} | Mime: {:?}",
         duration, mime
     );
-    let transcription = transcribe::transcribe(audio_bytes, mime).await;
-
-    let transcription = match transcription {
-        Ok(transcription) => transcription,
+    let audio_bytes = match ffmpeg_convert(audio_bytes, mime).await {
+        Ok(audio_bytes) => audio_bytes,
         Err(e) => {
-            error!("Failed to transcribe audio: {:?}", e);
-            bot.send_message(
-                message.chat.id,
-                format!("Failed to transcribe audio: {:?}", e),
-            )
-            .disable_web_page_preview(true)
-            .disable_notification(true)
-            .reply_to_message_id(message.id)
-            .await
-            .unwrap();
+            error!("Failed to convert audio: {:?}", e);
+            let bot_msg = bot
+                .send_message(message.chat.id, format!("Failed to convert audio: {:?}", e))
+                .disable_web_page_preview(true)
+                .disable_notification(true)
+                .reply_to_message_id(message.id)
+                .await
+                .unwrap();
+            delete_msg_delay(&bot, &bot_msg, 3).await;
             return Ok(lambda_http::Response::builder()
                 .status(200)
                 .body("".into())
                 .unwrap());
         }
     };
+    // After ffmpeg mime is wav
+    let mime = Mime::from_str("audio/wav").unwrap();
+
+    // Transcribe the message
+    info!("Transcribing audio! Duration: {}", duration);
+    let transcription = transcribe::transcribe(audio_bytes, mime).await;
+
+    let transcription = match transcription {
+        Ok(transcription) => transcription,
+        Err(e) => {
+            error!("Failed to transcribe audio: {:?}", e);
+            let bot_msg = bot
+                .send_message(
+                    message.chat.id,
+                    format!("Failed to transcribe audio: {:?}", e),
+                )
+                .disable_web_page_preview(true)
+                .disable_notification(true)
+                .reply_to_message_id(message.id)
+                .await
+                .unwrap();
+
+            delete_msg_delay(&bot, &bot_msg, 3).await;
+            return Ok(lambda_http::Response::builder()
+                .status(200)
+                .body("".into())
+                .unwrap());
+        }
+    };
+
+    let transcription = transcription.unwrap_or("<no text>".to_string());
 
     // Send the transcription to the user
     info!("Transcription: {}", transcription);
@@ -171,11 +201,7 @@ async fn handler(
         .unwrap();
 
     if transcription == "<no text>" {
-        // Wait for 3 seconds and delete the message
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        bot.delete_message(message.chat.id, bot_msg.id)
-            .await
-            .unwrap();
+        delete_msg_delay(&bot, &bot_msg, 3).await;
     }
 
     Ok(lambda_http::Response::builder()
@@ -195,3 +221,76 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
     Ok(body_json)
 }
 
+pub async fn ffmpeg_convert(bytes: Vec<u8>, mime: Mime) -> Result<Vec<u8>, String> {
+    // Convert the audio to wav
+    let file_extension = mime.subtype();
+    let file_extension = file_extension.as_ref();
+    info!(
+        "Input bytes: {} | File extension: {}",
+        bytes.len(),
+        file_extension
+    );
+    let now = Instant::now();
+    let mut command = std::process::Command::new("./ffmpeg");
+    command
+        .arg("-i")
+        .arg("pipe:0")
+        .arg("-f")
+        .arg(file_extension)
+        .arg("-vn")
+        .arg("-ar")
+        .arg("16000")
+        .arg("-ac")
+        .arg("1")
+        .arg("-f")
+        .arg("wav")
+        .arg("pipe:1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command.spawn().map_err(|err| {
+        error!("Failed to spawn ffmpeg: {}", err);
+        format!("Failed to spawn ffmpeg: {}", err)
+    })?;
+
+    let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+    stdin.write_all(&bytes).map_err(|err| {
+        error!("Failed to write to stdin: {}", err);
+        format!("Failed to write to stdin: {}", err)
+    })?;
+
+    let output = child.wait_with_output().map_err(|err| {
+        error!("Failed to wait for ffmpeg: {}", err);
+        format!("Failed to wait for ffmpeg: {}", err)
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("Failed to convert audio to wav. FFmpeg stderr: {}", stderr);
+        return Err(format!(
+            "Failed to convert audio to wav. FFmpeg stderr: {}",
+            stderr
+        ));
+    }
+
+    if output.stdout.is_empty() {
+        error!("FFmpeg produced empty output");
+        return Err("FFmpeg produced empty output".to_string());
+    }
+
+    info!(
+        "Output bytes: {} | Took {:.2}s",
+        output.stdout.len(),
+        now.elapsed().as_secs()
+    );
+
+    info!("FULL OUTPUT: {}", String::from_utf8_lossy(&output.stdout));
+
+    Ok(output.stdout)
+}
+
+pub async fn delete_msg_delay(bot: &Bot, msg: &teloxide::types::Message, delay: u64) {
+    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+    bot.delete_message(msg.chat.id, msg.id).await.unwrap();
+}

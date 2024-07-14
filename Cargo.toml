@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-lambda_http = "0.11"
-lambda_runtime = "0.11"
+lambda_http = "0.12"
+lambda_runtime = "0.12"
 reqwest = { version = "0.12", features = [
     "multipart",
     "json",
@@ -26,3 +26,4 @@ regex = "1.10.5"
 memory = 128      # Function's memory
 timeout = 60      # Function's execution timeout
 env_file = ".env" # File to load environment variables from
+include = ["ffmpeg"] # Include ffmpeg binary in the deployment package

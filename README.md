@@ -35,17 +35,13 @@ Before deploying this bot, ensure you have the following prerequisites installed
 
 To deploy this bot, you'll need to set up an AWS Lambda function and configure it to run this code. You'll also need to set up a Telegram bot and obtain a bot token.
 
-To build:
+To build and deploy:
 
 ```bash
-cargo lambda build --release --arm64
+bash update.sh
 ```
 
-To deploy:
-
-```bash
-cargo lambda deploy
-```
+This will download ffmpeg, extract it, build the binary and upload it to AWS Lambda.
 
 **License**
 -------

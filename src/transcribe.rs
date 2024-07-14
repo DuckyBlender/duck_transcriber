@@ -1,6 +1,5 @@
-// This file is kind of overengineered in order to filter out silent parts manually.
-
 use mime::Mime;
+// This file is kind of overengineered in order to filter out silent parts manually.
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
@@ -31,7 +30,7 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
+pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
@@ -47,7 +46,7 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
     // Create multipart request
     let part = reqwest::multipart::Part::bytes(buffer)
         .file_name(format!("audio.{}", mime.subtype()))
-        .mime_str(mime.as_ref())
+        .mime_str(mime.to_string().as_str())
         .unwrap();
     let form = reqwest::multipart::Form::new()
         .text("model", "whisper-large-v3")
@@ -87,7 +86,7 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
         }
 
         error!("Groq returned an error: {:?}", json);
-        return Err(format!("Groq returned an error: {}", json["error"]["code"]));
+        return Err(format!("Groq returned an error: {}", json["error"]["message"]));
     }
 
     // Extract all of the segments
@@ -110,10 +109,10 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
 
     // If the output text is empty, return <no text>
     if output_text.is_empty() {
-        return Ok("<no text>".to_string());
+        return Ok(None);
     }
 
-    Ok(output_text)
+    Ok(Some(output_text))
 }
 
 pub async fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
