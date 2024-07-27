@@ -116,3 +116,4 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, S
 
     Ok(Some(output_text))
 }
+

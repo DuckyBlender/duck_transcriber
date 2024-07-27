@@ -1,5 +1,6 @@
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
+use teloxide::types::ChatAction;
 use std::env;
 use std::str::FromStr;
 use teloxide::{net::Download, prelude::*};
@@ -26,9 +27,12 @@ async fn main() -> Result<(), Error> {
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set!"));
 
     // Set commands
-    bot.set_my_commands(vec![])
-        .await
-        .expect("Failed to set commands");
+    bot.set_my_commands(vec![
+        // TODO
+        // teloxide::types::BotCommand::new("transcribe", "Transcribe the replied audio file"),
+    ])
+    .await
+    .expect("Failed to set commands");
 
     // Run the Lambda function
     run(service_fn(|req| handler(req, &bot))).await
@@ -79,7 +83,7 @@ async fn handler(
 
     // Send "typing" indicator
     debug!("Sending typing indicator");
-    bot.send_chat_action(message.chat.id, teloxide::types::ChatAction::Typing)
+    bot.send_chat_action(message.chat.id, ChatAction::Typing)
         .await
         .unwrap();
 
@@ -172,8 +176,8 @@ async fn handler(
     let transcription = transcription.unwrap();
 
     // Send the transcription to the user
-    info!("Transcription: {}", transcription);
-    bot.send_message(message.chat.id, transcription.clone())
+    info!("Transcription: {}", &transcription);
+    bot.send_message(message.chat.id, &transcription)
         .reply_to_message_id(message.id)
         .disable_web_page_preview(true)
         .disable_notification(true)

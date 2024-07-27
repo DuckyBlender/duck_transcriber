@@ -17,7 +17,6 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 * The bot is built using the `teloxide` crate for interacting with the Telegram API.
 * The transcription is done using the `reqwest` crate to send a request to the Groq Whisper API.
 * The bot is deployed as a serverless function using AWS Lambda.
-* The code is written in Rust and uses the `lambda_http` crate to handle HTTP requests.
 
 **Environment Variables**
 -------------------------
@@ -50,7 +49,7 @@ cargo lambda deploy
 **License**
 -------
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+Do literally whatever you want with this code. I don't care.
 
 **Contributing**
 ------------
