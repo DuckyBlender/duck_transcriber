@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::error;
 
+use crate::parse_groq_ratelimit_error;
+
 #[derive(Debug, Deserialize, Serialize)]
 struct OpenAIWhisperResponse {
     task: String,
@@ -31,7 +33,7 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
+pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
     // Set OpenAI API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
@@ -64,7 +66,7 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
         .await
         .map_err(|err| {
             error!("Failed to send request to OpenAI: {}", err);
-            format!("Failed to send request to OpenAI: {}", err)
+            format!("Failed to send request to OpenAI: {err}")
         })?;
 
     // IT'S EXTREMELY IMPORTANT TO HANDLE EVERY ERROR FROM HERE. WE CANNOT RETURN STATUS OTHER THEN 200, TELEGRAM IS GOING TO KEEP SENDING THE WEBHOOK AGAIN CREATING AN INFINITE LOOP.
@@ -74,15 +76,13 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
         let json = res
             .json::<serde_json::Value>()
             .await
-            .map_err(|err| format!("Failed to parse OpenAI error response: {}", err))
+            .map_err(|err| format!("Failed to parse OpenAI error response: {err}"))
             .unwrap();
 
-        // Object {"error": Object {"code": String("rate_limit_exceeded"), "message": String("Rate limit reached for model `whisper-large-v3` in organization `org_01htnj6w5pf0za49my0yj0sje5` on seconds of audio per hour (ASPH): Limit 7200, Used 6816, Requested 607. Please try again in 1m51.463s. Visit https://console.groq.com/docs/rate-limits for more information."), "type": String("seconds")}}
         if json["error"]["code"] == "rate_limit_exceeded" {
             let wait_for = parse_groq_ratelimit_error(json["error"]["message"].as_str().unwrap()).await.unwrap();
             return Err(format!(
-                "Rate limit reached. Please try again in {} seconds.",
-                wait_for
+                "Rate limit reached. Please try again in {wait_for} seconds."
             ));
         }
 
@@ -94,7 +94,7 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
     let res = res
         .json::<OpenAIWhisperResponse>()
         .await
-        .map_err(|err| format!("Failed to parse OpenAI response: {}", err))
+        .map_err(|err| format!("Failed to parse OpenAI response: {err}"))
         .unwrap();
 
     let mut output_text = String::new();
@@ -102,6 +102,7 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
     // Extract all of the segments.
     for segment in res.segments {
         // If the no_speech_prob value is higher than 1.0 and the avg_logprob is below -1, consider this segment silent.
+        // These values are fine-tuned from a lot of testing. They work way better than the default values.
         if segment.no_speech_prob > 0.6 && segment.avg_logprob < -0.4 {
             continue;
         }
@@ -110,16 +111,8 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<String, String> {
 
     // If the output text is empty, return <no text>
     if output_text.is_empty() {
-        return Ok("<no text>".to_string());
+        return Ok(None);
     }
 
-    Ok(output_text)
-}
-
-pub async fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
-    let re = regex::Regex::new(r"try again in (\d+)m(\d+\.?\d*)s").unwrap();
-    let cap = re.captures(message)?;
-    let minutes = cap[1].parse::<u32>().unwrap();
-    let seconds = cap[2].parse::<f64>().unwrap().round() as u32;
-    Some(minutes * 60 + seconds)
+    Ok(Some(output_text))
 }
