@@ -119,12 +119,19 @@ async fn handler(
     if let Ok(transcription) = item {
         if let Some(transcription) = transcription {
             info!("Transcription found in DynamoDB: {}", transcription);
-            bot.send_message(message.chat.id, transcription)
+            let bot_msg = bot.send_message(message.chat.id, transcription.clone())
                 .reply_to_message_id(message.id)
                 .disable_web_page_preview(true)
                 .disable_notification(true)
                 .await
                 .unwrap();
+            
+            if transcription == "<no text>" {
+                // delete_later = Some(bot_msg);
+                // We can't use delete_later here because we need to return early
+                delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
+            }
+
             return Ok(lambda_http::Response::builder()
                 .status(200)
                 .body(String::new())
@@ -174,6 +181,8 @@ async fn handler(
                 .unwrap();
 
             delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
+
+            // Return early if transcription failed
             return Ok(lambda_http::Response::builder()
                 .status(200)
                 .body(String::new())
@@ -182,7 +191,7 @@ async fn handler(
     };
 
     // Send the transcription to the user
-    let transcription = transcription.unwrap_or("<no text>".to_string());
+    let transcription = transcription.unwrap_or("<no text>".to_string()).trim().to_string();
 
     info!("Transcription: {}", &transcription);
     let bot_msg = bot.send_message(message.chat.id, &transcription)
