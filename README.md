@@ -12,6 +12,12 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 4. If no transcription is found, the bot transcribes the audio using the Groq Whisper API.
 5. The transcription is sent back to the user as a text message and stored in DynamoDB for future reference.
 
+## **Supported Commands**
+
+- `/start`: Initializes the bot and provides a welcome message.
+- `/help`: Provides information on how to use the bot and its features.
+- more coming soon!
+
 ## **Technical Details**
 
 - The bot is built using the `teloxide` crate for interacting with the Telegram API.

@@ -10,12 +10,26 @@ use teloxide::types::UpdateKind;
 use teloxide::{net::Download, prelude::*};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::fmt;
+use teloxide::utils::command::BotCommands;
 
 mod dynamodb;
 mod transcribe;
 
 const MAX_DURATION: u32 = 30 * 60;
 const DEFAULT_DELAY: u64 = 5;
+
+#[derive(BotCommands, Clone)]
+#[command(rename_rule = "lowercase")]
+enum BotCommand {
+    #[command(description = "display this text.")]
+    Help,
+    #[command(description = "start the bot.")]
+    Start,
+    // #[command(description = "summarize the replied audio file.")]
+    // Summarize,
+    // #[command(description = "transcribe the replied audio file in English.")]
+    // English,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -38,12 +52,9 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
 
     // Set commands
-    bot.set_my_commands(vec![
-        // TODO
-        // teloxide::types::BotCommand::new("transcribe", "Transcribe the replied audio file"),
-    ])
-    .await
-    .expect("Failed to set commands");
+    bot.set_my_commands(BotCommand::bot_commands())
+        .await
+        .expect("Failed to set commands");
 
     // Run the Lambda function
     run(service_fn(|req| handler(req, &bot, &dynamodb))).await
@@ -68,6 +79,58 @@ async fn handler(
         }
     };
 
+    // Handle commands
+    if let UpdateKind::Message(message) = &update.kind {
+        if let Some(text) = &message.text() {
+            if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username()) {
+                return handle_command(bot.clone(), message.clone(), command).await;
+            }
+        }
+    }
+
+    // Handle audio messages
+    handle_audio_message(update, bot, dynamodb).await
+}
+
+async fn handle_command(
+    bot: Bot,
+    message: Message,
+    command: BotCommand,
+) -> Result<lambda_http::Response<String>, lambda_http::Error> {
+    match command {
+        BotCommand::Help => {
+            bot.send_message(message.chat.id, BotCommand::descriptions().to_string())
+                .await
+                .unwrap();
+        }
+        BotCommand::Start => {
+            bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands. Currently there are no other commands available.")
+                .await
+                .unwrap();
+        }
+        // BotCommand::Summarize => {
+        //     bot.send_message(message.chat.id, "Please reply to an audio message with /summarize to transcribe it.")
+        //         .await
+        //         .unwrap();
+        // }
+        // BotCommand::English => {
+        //     bot.send_message(message.chat.id, "Please reply to an audio message with /english to transcribe it in English.")
+        //         .await
+        //         .unwrap();
+        // }
+    }
+
+    Ok(lambda_http::Response::builder()
+        .status(200)
+        .body(String::new())
+        .unwrap())
+}
+
+async fn handle_audio_message(
+    update: Update,
+    bot: Bot,
+    dynamodb: &aws_sdk_dynamodb::Client,
+) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     let audio_bytes: Vec<u8>;
     let file_id: &String;
     let mime;

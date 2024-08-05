@@ -18,7 +18,7 @@ tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
 ] }
-teloxide = "0.12"
+teloxide = { version = "0.12", features = ["macros"] }
 mime = "0.3.17"
 regex = "1.10"
 aws-config = { version = "1.5", features = ["behavior-version-latest"] }
