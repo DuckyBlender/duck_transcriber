@@ -6,7 +6,7 @@ use tracing::{debug, info};
 pub struct Item {
     pub transcription: String,
     pub file_id: String,
-    pub unix_timestamp: String,
+    pub unix_timestamp: i64,
 }
 
 pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String>, Error> {
@@ -53,7 +53,7 @@ pub async fn add_item(client: &Client, item: Item) -> Result<(), Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let transcription = AttributeValue::S(item.transcription);
     let file_id = AttributeValue::S(item.file_id);
-    let unix_timestamp = AttributeValue::S(item.unix_timestamp);
+    let unix_timestamp = AttributeValue::N(item.unix_timestamp.to_string());
 
     let resp = client
         .put_item()

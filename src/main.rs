@@ -200,7 +200,7 @@ async fn handler(
     let item = dynamodb::Item {
         transcription,
         file_id: file_id.clone(),
-        unix_timestamp: chrono::Utc::now().timestamp().to_string(),
+        unix_timestamp: chrono::Utc::now().timestamp(),
     };
 
     info!("Saving transcription to DynamoDB with File ID: {}", file_id);
