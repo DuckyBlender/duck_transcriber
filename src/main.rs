@@ -1,14 +1,17 @@
+use aws_config::meta::region::RegionProviderChain;
+use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
-use teloxide::types::ChatAction;
 use std::env;
 use std::str::FromStr;
+use teloxide::types::ChatAction;
+use teloxide::types::Message;
+use teloxide::types::UpdateKind;
 use teloxide::{net::Download, prelude::*};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::fmt;
-use teloxide::types::Message;
-use teloxide::types::UpdateKind;
 
+mod dynamodb;
 mod transcribe;
 
 const MAX_DURATION: u32 = 30 * 60;
@@ -26,6 +29,14 @@ async fn main() -> Result<(), Error> {
     // Setup telegram bot (we do it here because this place is a cold start)
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set!"));
 
+    // Setup AWS DynamoDB conn
+    let region_provider = RegionProviderChain::default_provider().or_else("eu-central-1");
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .region(region_provider)
+        .load()
+        .await;
+    let dynamodb = aws_sdk_dynamodb::Client::new(&config);
+
     // Set commands
     bot.set_my_commands(vec![
         // TODO
@@ -35,16 +46,17 @@ async fn main() -> Result<(), Error> {
     .expect("Failed to set commands");
 
     // Run the Lambda function
-    run(service_fn(|req| handler(req, &bot))).await
+    run(service_fn(|req| handler(req, &bot, &dynamodb))).await
 }
 
 async fn handler(
     req: lambda_http::Request,
     bot: &Bot,
+    dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     // Parse JSON webhook
     let bot = bot.clone();
-    
+
     let update = match parse_webhook(req).await {
         Ok(message) => message,
         Err(e) => {
@@ -57,8 +69,10 @@ async fn handler(
     };
 
     let audio_bytes: Vec<u8>;
+    let file_id: &String;
     let mime;
     let duration;
+    let mut delete_later = false;
 
     // Make sure the message is a voice or video note
     let message = match update.kind {
@@ -90,22 +104,37 @@ async fn handler(
     // Check if the message is a voice or video note
     if let Some(voice) = message.voice() {
         let filemeta = &voice.file;
+        file_id = &filemeta.unique_id;
         info!("Received voice message: {:?}", filemeta);
-
-        (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
-
     } else if let Some(video_note) = message.video_note() {
         let filemeta = &video_note.file;
+        file_id = &filemeta.unique_id;
         info!("Received video note message: {:?}", filemeta);
-        
-        (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
     } else {
-        debug!("Received non-voice, non-audio, non-video note message");
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body(String::new())
-            .unwrap());
+        unreachable!();
     }
+
+    // Get the transcription from DynamoDB
+    let item = dynamodb::get_item(dynamodb, file_id).await;
+    if let Ok(transcription) = item {
+        if let Some(transcription) = transcription {
+            info!("Transcription found in DynamoDB: {}", transcription);
+            bot.send_message(message.chat.id, transcription)
+                .reply_to_message_id(message.id)
+                .disable_web_page_preview(true)
+                .disable_notification(true)
+                .await
+                .unwrap();
+            return Ok(lambda_http::Response::builder()
+                .status(200)
+                .body(String::new())
+                .unwrap());
+        }
+    } else {
+        error!("Failed to get item from DynamoDB: {:?}", item);
+    }
+
+    (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
 
     // If the duration is above MAX_DURATION
     if duration > MAX_DURATION {
@@ -158,24 +187,12 @@ async fn handler(
     // If the transcription is empty
     if transcription.is_none() {
         warn!("Transcription is empty!");
-        let bot_msg = bot
-            .send_message(message.chat.id, "<no text>")
-            .reply_to_message_id(message.id)
-            .disable_web_page_preview(true)
-            .disable_notification(true)
-            .await
-            .unwrap();
-
-        delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
-
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body(String::new())
-            .unwrap());
+        delete_later = true;
     }
-    let transcription = transcription.unwrap();
 
     // Send the transcription to the user
+    let transcription = transcription.unwrap_or("<no text>".to_string());
+
     info!("Transcription: {}", &transcription);
     bot.send_message(message.chat.id, &transcription)
         .reply_to_message_id(message.id)
@@ -183,6 +200,24 @@ async fn handler(
         .disable_notification(true)
         .await
         .unwrap();
+
+    // Save the transcription to DynamoDB
+    let item = dynamodb::Item {
+        transcription,
+        file_id: file_id.clone(),
+        unix_timestamp: chrono::Utc::now().timestamp().to_string(),
+    };
+
+    info!("Saving transcription to DynamoDB with File ID: {}", file_id);
+
+    match dynamodb::add_item(dynamodb, item).await {
+        Ok(_) => info!("Successfully saved transcription to DynamoDB"),
+        Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
+    }
+
+    if delete_later {
+        delete_message_delay(&bot, &message, DEFAULT_DELAY).await;
+    }
 
     Ok(lambda_http::Response::builder()
         .status(200)
@@ -202,7 +237,10 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(voice) = message.voice() {
         let file = bot.get_file(&voice.file.id).await?;
-        mime = voice.mime_type.clone().unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
+        mime = voice
+            .mime_type
+            .clone()
+            .unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
         duration = voice.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(video_note) = message.video_note() {
@@ -230,11 +268,8 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
 
 pub async fn delete_message_delay(bot: &Bot, msg: &Message, delay: u64) {
     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-    bot.delete_message(msg.chat.id, msg.id)
-        .await
-        .unwrap();
+    bot.delete_message(msg.chat.id, msg.id).await.unwrap();
 }
-
 
 pub async fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
     let re = regex::Regex::new(r"try again in (\d+)m(\d+\.?\d*)s").unwrap();
