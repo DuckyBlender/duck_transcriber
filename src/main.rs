@@ -72,7 +72,7 @@ async fn handler(
     let file_id: &String;
     let mime;
     let duration;
-    let mut delete_later = false;
+    let mut delete_later: Option<Message> = None;
 
     // Make sure the message is a voice or video note
     let message = match update.kind {
@@ -139,7 +139,7 @@ async fn handler(
     // If the duration is above MAX_DURATION
     if duration > MAX_DURATION {
         warn!("The audio message is above {MAX_DURATION} seconds!");
-        bot.send_message(
+        let bot_msg = bot.send_message(
             message.chat.id,
             format!("Duration is above {} minutes", MAX_DURATION * 60),
         )
@@ -148,10 +148,7 @@ async fn handler(
         .await
         .unwrap();
 
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body(String::new())
-            .unwrap());
+        delete_later = Some(bot_msg);
     }
 
     // Transcribe the message
@@ -184,22 +181,20 @@ async fn handler(
         }
     };
 
-    // If the transcription is empty
-    if transcription.is_none() {
-        warn!("Transcription is empty!");
-        delete_later = true;
-    }
-
     // Send the transcription to the user
     let transcription = transcription.unwrap_or("<no text>".to_string());
 
     info!("Transcription: {}", &transcription);
-    bot.send_message(message.chat.id, &transcription)
+    let bot_msg = bot.send_message(message.chat.id, &transcription)
         .reply_to_message_id(message.id)
         .disable_web_page_preview(true)
         .disable_notification(true)
         .await
         .unwrap();
+
+    if transcription == "<no text>" {
+        delete_later = Some(bot_msg);
+    }
 
     // Save the transcription to DynamoDB
     let item = dynamodb::Item {
@@ -215,8 +210,8 @@ async fn handler(
         Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
     }
 
-    if delete_later {
-        delete_message_delay(&bot, &message, DEFAULT_DELAY).await;
+    if delete_later.is_some() {
+        delete_message_delay(&bot, &delete_later.unwrap(), DEFAULT_DELAY).await;
     }
 
     Ok(lambda_http::Response::builder()
