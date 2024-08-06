@@ -23,7 +23,7 @@ const DEFAULT_DELAY: u64 = 5;
 enum BotCommand {
     #[command(description = "display this text.")]
     Help,
-    #[command(description = "start the bot.")]
+    #[command(description = "welcome message.")]
     Start,
     // #[command(description = "summarize the replied audio file.")]
     // Summarize,
