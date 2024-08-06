@@ -52,9 +52,12 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
 
     // Set commands
-    bot.set_my_commands(BotCommand::bot_commands())
-        .await
-        .expect("Failed to set commands");
+    let res = bot.set_my_commands(BotCommand::bot_commands())
+        .await;
+
+    if let Err(e) = res {
+        warn!("Failed to set commands: {:?}", e);
+    }
 
     // Run the Lambda function
     run(service_fn(|req| handler(req, &bot, &dynamodb))).await
@@ -231,7 +234,7 @@ async fn handle_audio_message(
     let transcription = match transcription {
         Ok(transcription) => transcription,
         Err(e) => {
-            error!("Failed to transcribe audio: {:?}", e);
+            warn!("Failed to transcribe audio: {:?}", e);
             let bot_msg = bot
                 .send_message(
                     message.chat.id,
@@ -338,10 +341,22 @@ pub async fn delete_message_delay(bot: &Bot, msg: &Message, delay: u64) {
     bot.delete_message(msg.chat.id, msg.id).await.unwrap();
 }
 
-pub async fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
-    let re = regex::Regex::new(r"try again in (\d+)m(\d+\.?\d*)s").unwrap();
-    let cap = re.captures(message)?;
-    let minutes = cap[1].parse::<u32>().unwrap();
-    let seconds = cap[2].parse::<f64>().unwrap().round() as u32;
-    Some(minutes * 60 + seconds)
+pub fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
+    // // Body: Object {"error": Object {"code": String("rate_limit_exceeded"), "message": String("Rate limit reached for model `whisper-large-v3` in organization `xxx` on seconds of audio per hour (ASPH): Limit 7200, Used 7182, Requested 23. Please try again in 2.317999999s. Visit https://console.groq.com/docs/rate-limits for more information."), "type": String("seconds")}}
+    let re = regex::Regex::new(r"Please try again in (\d+\.\d+)s").unwrap();
+    let caps = re.captures(message).unwrap();
+    let wait_for = caps.get(1).unwrap().as_str().parse::<f32>().unwrap();
+    Some(wait_for as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_groq_ratelimit_error() {
+        let message = "Rate limit reached for model `whisper-large-v3` in organization `org_01htnj6w5pf0za49my0yj0sje5` on seconds of audio per hour (ASPH): Limit 7200, Used 7182, Requested 23. Please try again in 2.317999999s.";
+        let wait_for = parse_groq_ratelimit_error(message).unwrap();
+        assert_eq!(wait_for, 2);
+    }
 }

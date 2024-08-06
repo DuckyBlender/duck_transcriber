@@ -4,6 +4,8 @@ use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
+use tracing::info;
 
 use std::env;
 use tracing::error;
@@ -80,7 +82,9 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, S
             .unwrap();
 
         if json["error"]["code"] == "rate_limit_exceeded" {
-            let wait_for = parse_groq_ratelimit_error(json["error"]["message"].as_str().unwrap()).await.unwrap();
+            info!("Rate limit reached. Waiting for rate limit to reset!");
+            debug!("Body of ratelimit: {:?}", json);
+            let wait_for = parse_groq_ratelimit_error(json["error"]["message"].as_str().unwrap()).unwrap();
             return Err(format!(
                 "Rate limit reached. Please try again in {wait_for} seconds."
             ));
