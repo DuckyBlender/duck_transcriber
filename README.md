@@ -1,5 +1,3 @@
-Here is the updated README.md:
-
 # **duck_transcriber**
 
 ## Overview
