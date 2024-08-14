@@ -7,12 +7,13 @@ use std::str::FromStr;
 use teloxide::types::ChatAction;
 use teloxide::types::Message;
 use teloxide::types::UpdateKind;
+use teloxide::utils::command::BotCommands;
 use teloxide::{net::Download, prelude::*};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::fmt;
-use teloxide::utils::command::BotCommands;
 
 mod dynamodb;
+mod kms;
 mod transcribe;
 
 const MAX_DURATION: u32 = 30 * 60;
@@ -50,23 +51,24 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
+    let kms = aws_sdk_kms::Client::new(&config);
 
     // Set commands
-    let res = bot.set_my_commands(BotCommand::bot_commands())
-        .await;
+    let res = bot.set_my_commands(BotCommand::bot_commands()).await;
 
     if let Err(e) = res {
         warn!("Failed to set commands: {:?}", e);
     }
 
     // Run the Lambda function
-    run(service_fn(|req| handler(req, &bot, &dynamodb))).await
+    run(service_fn(|req| handler(req, &bot, &dynamodb, &kms))).await
 }
 
 async fn handler(
     req: lambda_http::Request,
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
+    kms: &aws_sdk_kms::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     // Parse JSON webhook
     let bot = bot.clone();
@@ -92,7 +94,7 @@ async fn handler(
     }
 
     // Handle audio messages
-    handle_audio_message(update, bot, dynamodb).await
+    handle_audio_message(update, bot, dynamodb, kms).await
 }
 
 async fn handle_command(
@@ -110,17 +112,16 @@ async fn handle_command(
             bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands. Currently there are no other commands available.")
                 .await
                 .unwrap();
-        }
-        // BotCommand::Summarize => {
-        //     bot.send_message(message.chat.id, "Please reply to an audio message with /summarize to transcribe it.")
-        //         .await
-        //         .unwrap();
-        // }
-        // BotCommand::English => {
-        //     bot.send_message(message.chat.id, "Please reply to an audio message with /english to transcribe it in English.")
-        //         .await
-        //         .unwrap();
-        // }
+        } // BotCommand::Summarize => {
+          //     bot.send_message(message.chat.id, "Please reply to an audio message with /summarize to transcribe it.")
+          //         .await
+          //         .unwrap();
+          // }
+          // BotCommand::English => {
+          //     bot.send_message(message.chat.id, "Please reply to an audio message with /english to transcribe it in English.")
+          //         .await
+          //         .unwrap();
+          // }
     }
 
     Ok(lambda_http::Response::builder()
@@ -133,6 +134,7 @@ async fn handle_audio_message(
     update: Update,
     bot: Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
+    kms: &aws_sdk_kms::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     let audio_bytes: Vec<u8>;
     let file_id: &String;
@@ -171,11 +173,11 @@ async fn handle_audio_message(
     if let Some(voice) = message.voice() {
         let filemeta = &voice.file;
         file_id = &filemeta.unique_id;
-        info!("Received voice message: {:?}", filemeta);
+        info!("Received voice message!");
     } else if let Some(video_note) = message.video_note() {
         let filemeta = &video_note.file;
         file_id = &filemeta.unique_id;
-        info!("Received video note message: {:?}", filemeta);
+        info!("Received video note!");
     } else {
         unreachable!();
     }
@@ -184,14 +186,20 @@ async fn handle_audio_message(
     let item = dynamodb::get_item(dynamodb, file_id).await;
     if let Ok(transcription) = item {
         if let Some(transcription) = transcription {
-            info!("Transcription found in DynamoDB: {}", transcription);
-            let bot_msg = bot.send_message(message.chat.id, transcription.clone())
+            // Decrypt the blob
+            info!("Transcription found in DynamoDB for File ID: {}", file_id);
+            let now = std::time::Instant::now();
+            let transcription = kms::decrypt_blob(kms, transcription).await.unwrap();
+            info!("Decrypted transcription in {}ms", now.elapsed().as_millis());
+
+            let bot_msg = bot
+                .send_message(message.chat.id, &transcription)
                 .reply_to_message_id(message.id)
                 .disable_web_page_preview(true)
                 .disable_notification(true)
                 .await
                 .unwrap();
-            
+
             if transcription == "<no text>" {
                 // delete_later = Some(bot_msg);
                 // We can't use delete_later here because we need to return early
@@ -212,14 +220,15 @@ async fn handle_audio_message(
     // If the duration is above MAX_DURATION
     if duration > MAX_DURATION {
         warn!("The audio message is above {MAX_DURATION} seconds!");
-        let bot_msg = bot.send_message(
-            message.chat.id,
-            format!("Duration is above {} minutes", MAX_DURATION * 60),
-        )
-        .reply_to_message_id(message.id)
-        .disable_notification(true)
-        .await
-        .unwrap();
+        let bot_msg = bot
+            .send_message(
+                message.chat.id,
+                format!("Duration is above {} minutes", MAX_DURATION * 60),
+            )
+            .reply_to_message_id(message.id)
+            .disable_notification(true)
+            .await
+            .unwrap();
 
         delete_later = Some(bot_msg);
     }
@@ -229,17 +238,16 @@ async fn handle_audio_message(
         "Transcribing audio! Duration: {} | Mime: {:?}",
         duration, mime
     );
+    let now = std::time::Instant::now();
     let transcription = transcribe::transcribe(audio_bytes, mime).await;
+    info!("Transcribed audio in {}ms", now.elapsed().as_millis());
 
     let transcription = match transcription {
         Ok(transcription) => transcription,
         Err(e) => {
-            warn!("Failed to transcribe audio: {:?}", e);
+            warn!("Failed to transcribe audio: {}", e);
             let bot_msg = bot
-                .send_message(
-                    message.chat.id,
-                    format!("Failed to transcribe audio: {e:?}"),
-                )
+                .send_message(message.chat.id, format!("ERROR: {e}"))
                 .disable_web_page_preview(true)
                 .disable_notification(true)
                 .reply_to_message_id(message.id)
@@ -257,32 +265,64 @@ async fn handle_audio_message(
     };
 
     // Send the transcription to the user
-    let transcription = transcription.unwrap_or("<no text>".to_string()).trim().to_string();
+    let transcription = transcription
+        .unwrap_or("<no text>".to_string())
+        .trim()
+        .to_string();
 
-    info!("Transcription: {}", &transcription);
-    let bot_msg = bot.send_message(message.chat.id, &transcription)
+    bot.send_message(message.chat.id, &transcription)
         .reply_to_message_id(message.id)
         .disable_web_page_preview(true)
         .disable_notification(true)
         .await
         .unwrap();
 
-    if transcription == "<no text>" {
-        delete_later = Some(bot_msg);
+    info!("Encrypting transcription using KMS");
+    let now = std::time::Instant::now();
+    let encrypted_transcription = kms::encrypt_string(kms, &transcription).await;
+    info!("Encrypted transcription in {}ms", now.elapsed().as_millis());
+
+    if let Err(e) = encrypted_transcription {
+        error!("Failed to encrypt transcription: {:?}", e);
+        let bot_msg = bot
+            .send_message(
+                message.chat.id,
+                format!("ERROR: Failed to encrypt transcription: {e:?}"),
+            )
+            .disable_web_page_preview(true)
+            .disable_notification(true)
+            .reply_to_message_id(message.id)
+            .await
+            .unwrap();
+
+        delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
+
+        return Ok(lambda_http::Response::builder()
+            .status(200)
+            .body("Failed to encrypt transcription".into())
+            .unwrap());
     }
 
+    let encrypted_transcription = encrypted_transcription.unwrap();
+
     // Save the transcription to DynamoDB
-    let item = dynamodb::Item {
-        transcription,
+    let item = dynamodb::DBItem {
+        transcription: encrypted_transcription,
         file_id: file_id.clone(),
         unix_timestamp: chrono::Utc::now().timestamp(),
     };
 
-    info!("Saving transcription to DynamoDB with File ID: {}", file_id);
+    info!(
+        "Saving encrypted transcription to DynamoDB with File ID: {}",
+        file_id
+    );
 
     match dynamodb::add_item(dynamodb, item).await {
-        Ok(_) => info!("Successfully saved transcription to DynamoDB"),
-        Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
+        Ok(_) => info!("Successfully saved encrypted transcription to DynamoDB"),
+        Err(e) => error!(
+            "Failed to save encrypted transcription to DynamoDB: {:?}",
+            e
+        ),
     }
 
     if delete_later.is_some() {
@@ -332,7 +372,6 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
         not => panic!("expected Body::Text(...) got {not:?}"),
     };
     let body_json: Update = serde_json::from_str(body_str)?;
-    debug!("Parsed webhook: {:?}", body_json);
     Ok(body_json)
 }
 

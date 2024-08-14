@@ -1,19 +1,23 @@
 use std::env;
 
 use aws_sdk_dynamodb::{types::AttributeValue, Client, Error};
-use tracing::{debug, info};
+use aws_sdk_kms::primitives::Blob;
+use tracing::info;
 
-pub struct Item {
-    pub transcription: String,
+pub struct DBItem {
+    pub transcription: Blob, // encrypted bytes
     pub file_id: String,
     pub unix_timestamp: i64,
 }
 
-pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String>, Error> {
+pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<Blob>, Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let key = AttributeValue::S(file_id.to_string());
 
-    info!("Querying DynamoDB table '{}' for file_id '{}'", table, file_id);
+    info!(
+        "Querying DynamoDB table '{}' for file_id '{}'",
+        table, file_id
+    );
 
     let results = client
         .query()
@@ -36,26 +40,24 @@ pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String
             .unwrap()
             .get("transcription")
             .unwrap()
-            .as_s()
-            .as_ref()
-            .unwrap()
-            .to_string();
+            .as_b()
+            .unwrap();
 
-            info!("Transcription found for file_id '{}': {}", file_id, transcription);
-            Ok(Some(transcription))
-        } else {
-            info!("No items found for file_id '{}'", file_id);
-            Ok(None)
-        }
+        info!("Transcription found for file_id '{}'", file_id);
+        Ok(Some(transcription.clone()))
+    } else {
+        info!("No items found for file_id '{}'", file_id);
+        Ok(None)
+    }
 }
 
-pub async fn add_item(client: &Client, item: Item) -> Result<(), Error> {
+pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
-    let transcription = AttributeValue::S(item.transcription);
+    let transcription = AttributeValue::B(item.transcription);
     let file_id = AttributeValue::S(item.file_id);
     let unix_timestamp = AttributeValue::N(item.unix_timestamp.to_string());
 
-    let resp = client
+    client
         .put_item()
         .table_name(table)
         .item("transcription", transcription)
@@ -63,8 +65,6 @@ pub async fn add_item(client: &Client, item: Item) -> Result<(), Error> {
         .item("unixTimestamp", unix_timestamp)
         .send()
         .await?;
-
-    debug!("Response: {:?}", resp);
 
     Ok(())
 }
