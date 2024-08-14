@@ -88,7 +88,7 @@ async fn handler(
     if let UpdateKind::Message(message) = &update.kind {
         if let Some(text) = &message.text() {
             if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username()) {
-                return handle_command(bot.clone(), message.clone(), command).await;
+                return handle_command(bot.clone(), message, command).await;
             }
         }
     }
@@ -99,7 +99,7 @@ async fn handler(
 
 async fn handle_command(
     bot: Bot,
-    message: Message,
+    message: &Message,
     command: BotCommand,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     match command {

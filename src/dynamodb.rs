@@ -41,10 +41,11 @@ pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<Blob>,
             .get("transcription")
             .unwrap()
             .as_b()
-            .unwrap();
+            .unwrap()
+            .to_owned();
 
         info!("Transcription found for file_id '{}'", file_id);
-        Ok(Some(transcription.clone()))
+        Ok(Some(transcription))
     } else {
         info!("No items found for file_id '{}'", file_id);
         Ok(None)
