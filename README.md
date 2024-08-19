@@ -14,7 +14,7 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 
 ## **Supported Commands**
 
-- `/start`: Initializes the bot and provides a welcome message.
+- `/start`: Provides a welcome message.
 - `/help`: Provides information on how to use the bot and its features.
 - more coming soon!
 
