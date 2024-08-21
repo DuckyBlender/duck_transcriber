@@ -80,8 +80,8 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, S
 
         if json["error"]["code"] == "rate_limit_exceeded" {
             warn!(
-                "Rate limit reached. Here is the message: {}",
-                json["message"]
+                "Rate limit reached. Here is the response: {:?}",
+                json
             );
 
             // DONT CHANGE THIS STRING!

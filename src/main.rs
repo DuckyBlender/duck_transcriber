@@ -2,6 +2,9 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
+use utils::delete_message_delay;
+use utils::split_string;
+use core::str;
 use std::env;
 use std::str::FromStr;
 use teloxide::types::ChatAction;
@@ -16,6 +19,7 @@ use tracing_subscriber::fmt;
 mod dynamodb;
 mod kms;
 mod transcribe;
+mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)
@@ -312,7 +316,7 @@ async fn handle_audio_message(
     // Check the transcription length
     if transcription.len() > 4096 {
         info!("Transcription is too long, splitting into multiple messages");
-        let parts = split_transcription(&transcription, 4096);
+        let parts = split_string(&transcription, 4096);
         for part in parts {
             bot.send_message(message.chat.id, &part)
                 .reply_parameters(ReplyParameters::new(message.id))
@@ -428,25 +432,3 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
     Ok(body_json)
 }
 
-pub async fn delete_message_delay(bot: &Bot, msg: &Message, delay: u64) {
-    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-    bot.delete_message(msg.chat.id, msg.id).await.unwrap();
-}
-
-fn split_transcription(transcription: &str, max_len: usize) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    while start < transcription.len() {
-        let end = if start + max_len >= transcription.len() {
-            transcription.len()
-        } else {
-            match transcription[..start + max_len].rfind(' ') {
-                Some(pos) => start + pos,
-                None => start + max_len,
-            }
-        };
-        parts.push(transcription[start..end].to_string());
-        start = end + 1; // Skip the space
-    }
-    parts
-}
