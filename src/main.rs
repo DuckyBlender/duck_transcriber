@@ -175,7 +175,8 @@ async fn handle_audio_message(
 
     // Send "typing" indicator
     debug!("Sending typing indicator");
-    let action = bot.send_chat_action(message.chat.id, ChatAction::Typing)
+    let action = bot
+        .send_chat_action(message.chat.id, ChatAction::Typing)
         .await;
     if let Err(e) = action {
         warn!("Failed to send typing indicator: {:?}", e);
@@ -212,8 +213,6 @@ async fn handle_audio_message(
                 .unwrap();
 
             if transcription == "<no text>" {
-                // delete_later = Some(bot_msg);
-                // We can't use delete_later here because we need to return early
                 delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
             }
 
@@ -310,11 +309,24 @@ async fn handle_audio_message(
         .trim()
         .to_string();
 
-    bot.send_message(message.chat.id, &transcription)
-        .reply_parameters(ReplyParameters::new(message.id))
-        .disable_notification(true)
-        .await
-        .unwrap();
+    // Check the transcription length
+    if transcription.len() > 4096 {
+        info!("Transcription is too long, splitting into multiple messages");
+        let parts = split_transcription(&transcription, 4096);
+        for part in parts {
+            bot.send_message(message.chat.id, &part)
+                .reply_parameters(ReplyParameters::new(message.id))
+                .disable_notification(true)
+                .await
+                .unwrap();
+        }
+    } else {
+        bot.send_message(message.chat.id, &transcription)
+            .reply_parameters(ReplyParameters::new(message.id))
+            .disable_notification(true)
+            .await
+            .unwrap();
+    }
 
     info!("Encrypting transcription using KMS");
     let now = std::time::Instant::now();
@@ -419,4 +431,22 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
 pub async fn delete_message_delay(bot: &Bot, msg: &Message, delay: u64) {
     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
     bot.delete_message(msg.chat.id, msg.id).await.unwrap();
+}
+
+fn split_transcription(transcription: &str, max_len: usize) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    while start < transcription.len() {
+        let end = if start + max_len >= transcription.len() {
+            transcription.len()
+        } else {
+            match transcription[..start + max_len].rfind(' ') {
+                Some(pos) => start + pos,
+                None => start + max_len,
+            }
+        };
+        parts.push(transcription[start..end].to_string());
+        start = end + 1; // Skip the space
+    }
+    parts
 }
