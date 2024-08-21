@@ -52,6 +52,24 @@ pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<Blob>,
     }
 }
 
+pub async fn get_item_count(client: &Client) -> Result<i32, Error> {
+    let table = env::var("DYNAMODB_TABLE").unwrap();
+
+    info!("Querying DynamoDB table '{}' for item count", table);
+
+    let results = client
+        .scan()
+        .table_name(&table)
+        .select("COUNT".into())
+        .send()
+        .await?;
+
+    let count = results.count;
+
+    info!("Item count for table '{}': {}", &table, count);
+    Ok(count)
+}
+
 pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let transcription = AttributeValue::B(item.transcription);

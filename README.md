@@ -16,6 +16,7 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 
 - `/start`: Provides a welcome message.
 - `/help`: Provides information on how to use the bot and its features.
+- `/cache`: Returns the number of transcriptions stored in the DynamoDB cache.
 - more coming soon!
 
 ## **Technical Details**

@@ -6,6 +6,7 @@ use std::env;
 use std::str::FromStr;
 use teloxide::types::ChatAction;
 use teloxide::types::Message;
+use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::utils::command::BotCommands;
 use teloxide::{net::Download, prelude::*};
@@ -16,7 +17,7 @@ mod dynamodb;
 mod kms;
 mod transcribe;
 
-const MAX_DURATION: u32 = 30 * 60;
+const MAX_DURATION: u32 = 30; // in minutes
 const DEFAULT_DELAY: u64 = 5;
 
 #[derive(BotCommands, Clone)]
@@ -26,6 +27,8 @@ enum BotCommand {
     Help,
     #[command(description = "welcome message.")]
     Start,
+    #[command(description = "amount of cached transcriptions.", alias = "cached")]
+    Cache,
     // #[command(description = "summarize the replied audio file.")]
     // Summarize,
     // #[command(description = "transcribe the replied audio file in English.")]
@@ -88,7 +91,7 @@ async fn handler(
     if let UpdateKind::Message(message) = &update.kind {
         if let Some(text) = &message.text() {
             if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username()) {
-                return handle_command(bot.clone(), message, command).await;
+                return handle_command(bot.clone(), message, command, dynamodb).await;
             }
         }
     }
@@ -101,6 +104,7 @@ async fn handle_command(
     bot: Bot,
     message: &Message,
     command: BotCommand,
+    dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     match command {
         BotCommand::Help => {
@@ -112,6 +116,15 @@ async fn handle_command(
             bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands. Currently there are no other commands available.")
                 .await
                 .unwrap();
+        }
+        BotCommand::Cache => {
+            let item_count = dynamodb::get_item_count(dynamodb).await.unwrap();
+            bot.send_message(
+                message.chat.id,
+                format!("There are {} cached transcriptions.", item_count),
+            )
+            .await
+            .unwrap();
         } // BotCommand::Summarize => {
           //     bot.send_message(message.chat.id, "Please reply to an audio message with /summarize to transcribe it.")
           //         .await
@@ -140,7 +153,6 @@ async fn handle_audio_message(
     let file_id: &String;
     let mime;
     let duration;
-    let mut delete_later: Option<Message> = None;
 
     // Make sure the message is a voice or video note
     let message = match update.kind {
@@ -194,8 +206,7 @@ async fn handle_audio_message(
 
             let bot_msg = bot
                 .send_message(message.chat.id, &transcription)
-                .reply_to_message_id(message.id)
-                .disable_web_page_preview(true)
+                .reply_parameters(ReplyParameters::new(message.id))
                 .disable_notification(true)
                 .await
                 .unwrap();
@@ -218,19 +229,23 @@ async fn handle_audio_message(
     (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
 
     // If the duration is above MAX_DURATION
-    if duration > MAX_DURATION {
-        warn!("The audio message is above {MAX_DURATION} seconds!");
-        let bot_msg = bot
-            .send_message(
-                message.chat.id,
-                format!("Duration is above {} minutes", MAX_DURATION * 60),
-            )
-            .reply_to_message_id(message.id)
-            .disable_notification(true)
-            .await
-            .unwrap();
+    if duration > MAX_DURATION * 60 {
+        warn!("The audio message is above {MAX_DURATION} minutes!");
+        bot.send_message(
+            message.chat.id,
+            format!("Duration is above {} minutes", MAX_DURATION * 60),
+        )
+        .reply_parameters(ReplyParameters::new(message.id))
+        .disable_notification(true)
+        .await
+        .unwrap();
 
-        delete_later = Some(bot_msg);
+        // we don't want to delete the message
+        // Return early if the audio is too long
+        return Ok(lambda_http::Response::builder()
+            .status(200)
+            .body(String::new())
+            .unwrap());
     }
 
     // Transcribe the message
@@ -245,12 +260,20 @@ async fn handle_audio_message(
     let transcription = match transcription {
         Ok(transcription) => transcription,
         Err(e) => {
+            // If there is a rate limit, return NON-200. We want to retry the transcription later.
+            // I don't know if status 429 does anything, lets do it anyway cause why not.
+            if let Some(wait_for) = parse_groq_ratelimit_error(&e) {
+                return Ok(lambda_http::Response::builder()
+                    .status(429)
+                    .header("Retry-After", wait_for.to_string())
+                    .body("Rate limit reached".into())
+                    .unwrap());
+            }
             warn!("Failed to transcribe audio: {}", e);
             let bot_msg = bot
                 .send_message(message.chat.id, format!("ERROR: {e}"))
-                .disable_web_page_preview(true)
+                .reply_parameters(ReplyParameters::new(message.id))
                 .disable_notification(true)
-                .reply_to_message_id(message.id)
                 .await
                 .unwrap();
 
@@ -271,8 +294,7 @@ async fn handle_audio_message(
         .to_string();
 
     bot.send_message(message.chat.id, &transcription)
-        .reply_to_message_id(message.id)
-        .disable_web_page_preview(true)
+        .reply_parameters(ReplyParameters::new(message.id))
         .disable_notification(true)
         .await
         .unwrap();
@@ -289,9 +311,8 @@ async fn handle_audio_message(
                 message.chat.id,
                 format!("ERROR: Failed to encrypt transcription: {e:?}"),
             )
-            .disable_web_page_preview(true)
+            .reply_parameters(ReplyParameters::new(message.id))
             .disable_notification(true)
-            .reply_to_message_id(message.id)
             .await
             .unwrap();
 
@@ -323,10 +344,6 @@ async fn handle_audio_message(
             "Failed to save encrypted transcription to DynamoDB: {:?}",
             e
         ),
-    }
-
-    if delete_later.is_some() {
-        delete_message_delay(&bot, &delete_later.unwrap(), DEFAULT_DELAY).await;
     }
 
     Ok(lambda_http::Response::builder()
@@ -362,7 +379,7 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         return Err(Error::from("Unsupported message type"));
     }
 
-    Ok((audio_bytes, mime, duration))
+    Ok((audio_bytes, mime, duration.seconds()))
 }
 
 pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
