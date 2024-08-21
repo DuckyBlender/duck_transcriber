@@ -177,9 +177,11 @@ async fn handle_audio_message(
 
     // Send "typing" indicator
     debug!("Sending typing indicator");
-    bot.send_chat_action(message.chat.id, ChatAction::Typing)
-        .await
-        .unwrap();
+    let action = bot.send_chat_action(message.chat.id, ChatAction::Typing)
+        .await;
+    if let Err(e) = action {
+        warn!("Failed to send typing indicator: {:?}", e);
+    }
 
     // Check if the message is a voice or video note
     if let Some(voice) = message.voice() {
