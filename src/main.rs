@@ -18,6 +18,7 @@ mod kms;
 mod transcribe;
 
 const MAX_DURATION: u32 = 30; // in minutes
+const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)
 const DEFAULT_DELAY: u64 = 5;
 
 #[derive(BotCommands, Clone)]
@@ -149,10 +150,7 @@ async fn handle_audio_message(
     dynamodb: &aws_sdk_dynamodb::Client,
     kms: &aws_sdk_kms::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
-    let audio_bytes: Vec<u8>;
     let file_id: &String;
-    let mime;
-    let duration;
 
     // Make sure the message is a voice or video note
     let message = match update.kind {
@@ -228,7 +226,26 @@ async fn handle_audio_message(
         error!("Failed to get item from DynamoDB: {:?}", item);
     }
 
-    (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
+    // (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
+    let res = download_audio(&bot, &message).await;
+    if let Err(e) = res {
+        error!("Failed to download audio: {:?}", e);
+        let bot_msg = bot
+            .send_message(message.chat.id, format!("ERROR: {e}"))
+            .reply_parameters(ReplyParameters::new(message.id))
+            .disable_notification(true)
+            .await
+            .unwrap();
+
+        delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
+
+        return Ok(lambda_http::Response::builder()
+            .status(200)
+            .body(String::new())
+            .unwrap());
+    }
+
+    let (audio_bytes, mime, duration) = res.unwrap();
 
     // If the duration is above MAX_DURATION
     if duration > MAX_DURATION * 60 {
@@ -357,13 +374,14 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
     let mime;
     let duration;
 
-    if let Some(audio) = message.audio() {
-        let file = bot.get_file(&audio.file.id).await?;
-        mime = audio.mime_type.clone().unwrap();
-        duration = audio.duration;
-        bot.download_file(&file.path, &mut audio_bytes).await?;
-    } else if let Some(voice) = message.voice() {
+    if let Some(voice) = message.voice() {
         let file = bot.get_file(&voice.file.id).await?;
+        if file.size > MAX_FILE_SIZE * 1024 * 1024 {
+            return Err(Error::from(format!(
+                "File can't be larger than {MAX_FILE_SIZE}MB (current size: {}MB)",
+                file.size / 1024 / 1024
+            )));
+        }
         mime = voice
             .mime_type
             .clone()
@@ -372,6 +390,12 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(video_note) = message.video_note() {
         let file = bot.get_file(&video_note.file.id).await?;
+        if file.size > MAX_FILE_SIZE * 1024 * 1024 {
+            return Err(Error::from(format!(
+                "File can't be larger than {MAX_FILE_SIZE}MB (current size: {}MB)",
+                file.size / 1024 / 1024
+            )));
+        }
         mime = Mime::from_str("video/mp4").unwrap();
         duration = video_note.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
