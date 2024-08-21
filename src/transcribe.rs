@@ -4,13 +4,10 @@ use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use tracing::warn;
 
 use std::env;
 use tracing::error;
-
-use crate::parse_groq_ratelimit_error;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OpenAIWhisperResponse {
@@ -82,15 +79,13 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, S
             .unwrap();
 
         if json["error"]["code"] == "rate_limit_exceeded" {
-            info!("Body of ratelimit: {:?}", json);
-            let wait_for =
-                parse_groq_ratelimit_error(json["error"]["message"].as_str().unwrap()).unwrap();
-            warn!("Rate limit reached. Waiting for {} seconds.", wait_for);
+            warn!(
+                "Rate limit reached. Here is the message: {}",
+                json["message"]
+            );
 
             // DONT CHANGE THIS STRING!
-            return Err(format!(
-                "Rate limit reached. Please try again in {wait_for} seconds."
-            ));
+            return Err("Rate limit reached.".to_string());
         }
 
         error!("Groq returned an error: {:?}", json);

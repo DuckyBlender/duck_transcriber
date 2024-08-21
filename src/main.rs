@@ -261,11 +261,9 @@ async fn handle_audio_message(
         Ok(transcription) => transcription,
         Err(e) => {
             // If there is a rate limit, return NON-200. We want to retry the transcription later.
-            // I don't know if status 429 does anything, lets do it anyway cause why not.
-            if let Some(wait_for) = parse_groq_ratelimit_error(&e) {
+            if e.starts_with("Rate limit reached.") {
                 return Ok(lambda_http::Response::builder()
                     .status(429)
-                    .header("Retry-After", wait_for.to_string())
                     .body("Rate limit reached".into())
                     .unwrap());
             }
@@ -395,24 +393,4 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
 pub async fn delete_message_delay(bot: &Bot, msg: &Message, delay: u64) {
     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
     bot.delete_message(msg.chat.id, msg.id).await.unwrap();
-}
-
-pub fn parse_groq_ratelimit_error(message: &str) -> Option<u32> {
-    // // Body: Object {"error": Object {"code": String("rate_limit_exceeded"), "message": String("Rate limit reached for model `whisper-large-v3` in organization `xxx` on seconds of audio per hour (ASPH): Limit 7200, Used 7182, Requested 23. Please try again in 2.317999999s. Visit https://console.groq.com/docs/rate-limits for more information."), "type": String("seconds")}}
-    let re = regex::Regex::new(r"Please try again in (\d+\.\d+)s").unwrap();
-    let caps = re.captures(message).unwrap();
-    let wait_for = caps.get(1).unwrap().as_str().parse::<f32>().unwrap();
-    Some(wait_for as u32)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_groq_ratelimit_error() {
-        let message = "Rate limit reached for model `whisper-large-v3` in organization `org_01htnj6w5pf0za49my0yj0sje5` on seconds of audio per hour (ASPH): Limit 7200, Used 7182, Requested 23. Please try again in 2.317999999s.";
-        let wait_for = parse_groq_ratelimit_error(message).unwrap();
-        assert_eq!(wait_for, 2);
-    }
 }

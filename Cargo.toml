@@ -20,7 +20,6 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 teloxide = { version = "0.13", features = ["macros"] }
 mime = "0.3.17"
-regex = "1.10"
 aws-config = { version = "1.5", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1.39"
 aws-sdk-kms = "1.38.0"
