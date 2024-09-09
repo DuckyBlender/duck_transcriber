@@ -1,13 +1,16 @@
-// This file is kind of overengineered in order to filter out silent parts manually.
-
 use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-
 use std::env;
 use tracing::error;
+use crate::BASE_URL;
+
+pub enum TaskType {
+    Transcribe,
+    Translate,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OpenAIWhisperResponse {
@@ -32,8 +35,8 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
-    // Set OpenAI API headers
+pub async fn transcribe(task_type: TaskType, buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
+    // Set Groq API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -57,8 +60,13 @@ pub async fn transcribe(buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, S
 
     // Send file to Groq Whisper for transcription
     let client = reqwest::Client::new();
+    let url_ending = match task_type {
+        TaskType::Transcribe => "/audio/transcriptions",
+        TaskType::Translate => "/audio/translations",
+    };
+
     let res = client
-        .post("https://api.groq.com/openai/v1/audio/transcriptions".to_string())
+        .post(format!("{BASE_URL}{url_ending}"))
         .multipart(form)
         .headers(headers)
         .send()

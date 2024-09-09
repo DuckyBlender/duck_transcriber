@@ -1,16 +1,15 @@
 use std::env;
 
 use aws_sdk_dynamodb::{types::AttributeValue, Client, Error};
-use aws_sdk_kms::primitives::Blob;
 use tracing::info;
 
 pub struct DBItem {
-    pub transcription: Blob, // encrypted bytes
+    pub transcription: String,
     pub file_id: String,
     pub unix_timestamp: i64,
 }
 
-pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<Blob>, Error> {
+pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String>, Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let key = AttributeValue::S(file_id.to_string());
 
@@ -40,7 +39,7 @@ pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<Blob>,
             .unwrap()
             .get("transcription")
             .unwrap()
-            .as_b()
+            .as_s()
             .unwrap()
             .to_owned();
 
@@ -72,7 +71,7 @@ pub async fn get_item_count(client: &Client) -> Result<i32, Error> {
 
 pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
-    let transcription = AttributeValue::B(item.transcription);
+    let transcription = AttributeValue::S(item.transcription);
     let file_id = AttributeValue::S(item.file_id);
     let unix_timestamp = AttributeValue::N(item.unix_timestamp.to_string());
 

@@ -22,7 +22,6 @@ teloxide = { version = "0.13", features = ["macros"] }
 mime = "0.3.17"
 aws-config = { version = "1.5", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1.39"
-aws-sdk-kms = "1.38.0"
 chrono = "0.4"
 
 [package.metadata.lambda.deploy]

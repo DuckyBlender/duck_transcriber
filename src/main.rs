@@ -2,6 +2,7 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
+use transcribe::TaskType;
 use utils::delete_message_delay;
 use utils::split_string;
 use core::str;
@@ -17,13 +18,14 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::fmt;
 
 mod dynamodb;
-mod kms;
 mod transcribe;
 mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)
 const DEFAULT_DELAY: u64 = 5;
+
+pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
@@ -34,10 +36,8 @@ enum BotCommand {
     Start,
     #[command(description = "amount of cached transcriptions.", alias = "cached")]
     Cache,
-    // #[command(description = "summarize the replied audio file.")]
-    // Summarize,
-    // #[command(description = "transcribe the replied audio file in English.")]
-    // English,
+    #[command(description = "transcribe the replied audio file in English.")]
+    English,
 }
 
 #[tokio::main]
@@ -59,7 +59,6 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
-    let kms = aws_sdk_kms::Client::new(&config);
 
     // Set commands
     let res = bot.set_my_commands(BotCommand::bot_commands()).await;
@@ -69,14 +68,13 @@ async fn main() -> Result<(), Error> {
     }
 
     // Run the Lambda function
-    run(service_fn(|req| handler(req, &bot, &dynamodb, &kms))).await
+    run(service_fn(|req| handler(req, &bot, &dynamodb))).await
 }
 
 async fn handler(
     req: lambda_http::Request,
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
-    kms: &aws_sdk_kms::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     // Parse JSON webhook
     let bot = bot.clone();
@@ -102,7 +100,7 @@ async fn handler(
     }
 
     // Handle audio messages
-    handle_audio_message(update, bot, dynamodb, kms).await
+    handle_audio_message(update, bot, dynamodb).await
 }
 
 async fn handle_command(
@@ -130,16 +128,12 @@ async fn handle_command(
             )
             .await
             .unwrap();
-        } // BotCommand::Summarize => {
-          //     bot.send_message(message.chat.id, "Please reply to an audio message with /summarize to transcribe it.")
-          //         .await
-          //         .unwrap();
-          // }
-          // BotCommand::English => {
-          //     bot.send_message(message.chat.id, "Please reply to an audio message with /english to transcribe it in English.")
-          //         .await
-          //         .unwrap();
-          // }
+        }
+        BotCommand::English => {
+            bot.send_message(message.chat.id, "This feature is not available yet.")
+                .await
+                .unwrap();
+        }
     }
 
     Ok(lambda_http::Response::builder()
@@ -152,7 +146,6 @@ async fn handle_audio_message(
     update: Update,
     bot: Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
-    kms: &aws_sdk_kms::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     let file_id: &String;
 
@@ -205,9 +198,6 @@ async fn handle_audio_message(
         if let Some(transcription) = transcription {
             // Decrypt the blob
             info!("Transcription found in DynamoDB for File ID: {}", file_id);
-            let now = std::time::Instant::now();
-            let transcription = kms::decrypt_blob(kms, transcription).await.unwrap();
-            info!("Decrypted transcription in {}ms", now.elapsed().as_millis());
 
             let bot_msg = bot
                 .send_message(message.chat.id, &transcription)
@@ -276,7 +266,7 @@ async fn handle_audio_message(
         duration, mime
     );
     let now = std::time::Instant::now();
-    let transcription = transcribe::transcribe(audio_bytes, mime).await;
+    let transcription = transcribe::transcribe(transcribe::TaskType::Transcribe, audio_bytes, mime).await;
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());
 
     let transcription = match transcription {
@@ -332,49 +322,22 @@ async fn handle_audio_message(
             .unwrap();
     }
 
-    info!("Encrypting transcription using KMS");
-    let now = std::time::Instant::now();
-    let encrypted_transcription = kms::encrypt_string(kms, &transcription).await;
-    info!("Encrypted transcription in {}ms", now.elapsed().as_millis());
-
-    if let Err(e) = encrypted_transcription {
-        error!("Failed to encrypt transcription: {:?}", e);
-        let bot_msg = bot
-            .send_message(
-                message.chat.id,
-                format!("ERROR: Failed to encrypt transcription: {e:?}"),
-            )
-            .reply_parameters(ReplyParameters::new(message.id))
-            .disable_notification(true)
-            .await
-            .unwrap();
-
-        delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
-
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body("Failed to encrypt transcription".into())
-            .unwrap());
-    }
-
-    let encrypted_transcription = encrypted_transcription.unwrap();
-
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
-        transcription: encrypted_transcription,
+        transcription,
         file_id: file_id.clone(),
         unix_timestamp: chrono::Utc::now().timestamp(),
     };
 
     info!(
-        "Saving encrypted transcription to DynamoDB with File ID: {}",
+        "Saving transcription to DynamoDB with File ID: {}",
         file_id
     );
 
     match dynamodb::add_item(dynamodb, item).await {
-        Ok(_) => info!("Successfully saved encrypted transcription to DynamoDB"),
+        Ok(_) => info!("Successfully saved transcription to DynamoDB"),
         Err(e) => error!(
-            "Failed to save encrypted transcription to DynamoDB: {:?}",
+            "Failed to save transcription to DynamoDB: {:?}",
             e
         ),
     }
