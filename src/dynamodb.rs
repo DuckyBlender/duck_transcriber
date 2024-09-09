@@ -5,17 +5,16 @@ use tracing::info;
 
 pub struct DBItem {
     pub transcription: String,
-    pub file_id: String,
-    pub unix_timestamp: i64,
+    pub unique_file_id: String,
 }
 
-pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String>, Error> {
+pub async fn get_item(client: &Client, unique_file_id: &String) -> Result<Option<String>, Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
-    let key = AttributeValue::S(file_id.to_string());
+    let key = AttributeValue::S(unique_file_id.to_string());
 
     info!(
-        "Querying DynamoDB table '{}' for file_id '{}'",
-        table, file_id
+        "Querying DynamoDB table '{}' for unique_file_id '{}'",
+        table, unique_file_id
     );
 
     let results = client
@@ -30,7 +29,7 @@ pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String
 
     if let Some(item) = results.items {
         if item.is_empty() {
-            info!("No items found for file_id '{}'", file_id);
+            info!("No items found for unique_file_id '{}'", unique_file_id);
             return Ok(None);
         }
 
@@ -43,10 +42,10 @@ pub async fn get_item(client: &Client, file_id: &String) -> Result<Option<String
             .unwrap()
             .to_owned();
 
-        info!("Transcription found for file_id '{}'", file_id);
+        info!("Transcription found for file_id '{}'", unique_file_id);
         Ok(Some(transcription))
     } else {
-        info!("No items found for file_id '{}'", file_id);
+        info!("No items found for file_id '{}'", unique_file_id);
         Ok(None)
     }
 }
@@ -72,15 +71,13 @@ pub async fn get_item_count(client: &Client) -> Result<i32, Error> {
 pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let transcription = AttributeValue::S(item.transcription);
-    let file_id = AttributeValue::S(item.file_id);
-    let unix_timestamp = AttributeValue::N(item.unix_timestamp.to_string());
+    let file_id = AttributeValue::S(item.unique_file_id);
 
     client
         .put_item()
         .table_name(table)
         .item("transcription", transcription)
         .item("fileId", file_id)
-        .item("unixTimestamp", unix_timestamp)
         .send()
         .await?;
 

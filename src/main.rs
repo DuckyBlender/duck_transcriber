@@ -2,7 +2,6 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
-use transcribe::TaskType;
 use utils::delete_message_delay;
 use utils::split_string;
 use core::str;
@@ -147,7 +146,7 @@ async fn handle_audio_message(
     bot: Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
-    let file_id: &String;
+    let unique_file_id: &String;
 
     // Make sure the message is a voice or video note
     let message = match update.kind {
@@ -182,22 +181,22 @@ async fn handle_audio_message(
     // Check if the message is a voice or video note
     if let Some(voice) = message.voice() {
         let filemeta = &voice.file;
-        file_id = &filemeta.unique_id;
+        unique_file_id = &filemeta.unique_id;
         info!("Received voice message!");
     } else if let Some(video_note) = message.video_note() {
         let filemeta = &video_note.file;
-        file_id = &filemeta.unique_id;
+        unique_file_id = &filemeta.unique_id;
         info!("Received video note!");
     } else {
         unreachable!();
     }
 
     // Get the transcription from DynamoDB
-    let item = dynamodb::get_item(dynamodb, file_id).await;
+    let item = dynamodb::get_item(dynamodb, unique_file_id).await;
     if let Ok(transcription) = item {
         if let Some(transcription) = transcription {
             // Decrypt the blob
-            info!("Transcription found in DynamoDB for File ID: {}", file_id);
+            info!("Transcription found in DynamoDB for unique_file_id: {}", unique_file_id);
 
             let bot_msg = bot
                 .send_message(message.chat.id, &transcription)
@@ -325,13 +324,12 @@ async fn handle_audio_message(
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
         transcription,
-        file_id: file_id.clone(),
-        unix_timestamp: chrono::Utc::now().timestamp(),
+        unique_file_id: unique_file_id.clone(),
     };
 
     info!(
-        "Saving transcription to DynamoDB with File ID: {}",
-        file_id
+        "Saving transcription to DynamoDB with unique_file_id: {}",
+        unique_file_id
     );
 
     match dynamodb::add_item(dynamodb, item).await {
