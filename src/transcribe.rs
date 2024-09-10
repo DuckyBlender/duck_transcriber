@@ -38,7 +38,7 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-pub async fn transcribe(task_type: TaskType, buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
+pub async fn transcribe(task_type: &TaskType, buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
     // Set Groq API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(

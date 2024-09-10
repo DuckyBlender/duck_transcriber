@@ -11,11 +11,17 @@ pub struct DBItem {
     pub task_type: String,
 }
 
+pub enum ItemReturnInfo {
+    Text(String),
+    Exists, // Item already exists, but for other task type.
+    None,
+}
+
 pub async fn get_item(
     client: &Client,
     unique_file_id: &String,
     task_type: &TaskType,
-) -> Result<Option<String>, Error> {
+) -> Result<ItemReturnInfo, Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let key = AttributeValue::S(unique_file_id.to_string());
     let task_type = task_type.to_string();
@@ -38,7 +44,7 @@ pub async fn get_item(
     if let Some(item) = results.items {
         if item.is_empty() {
             info!("No items found for unique_file_id '{}'", unique_file_id);
-            return Ok(None);
+            return Ok(ItemReturnInfo::None);
         }
 
         let transcription = item.first().unwrap().get(&task_type);
@@ -49,20 +55,50 @@ pub async fn get_item(
                     "{} found for unique_file_id '{}'",
                     task_type, unique_file_id
                 );
-                Ok(Some(transcription.as_s().unwrap().to_string()))
+                let transcription = transcription.as_s().unwrap().to_string();
+                Ok(ItemReturnInfo::Text(transcription))
             }
             None => {
                 info!(
                     "No {} found for unique_file_id '{}'",
                     task_type, unique_file_id
                 );
-                Ok(None)
+                Ok(ItemReturnInfo::Exists)
             }
         }
     } else {
         info!("No items found for unique_file_id '{}'", unique_file_id);
-        Ok(None)
+        Ok(ItemReturnInfo::None)
     }
+}
+
+pub async fn append_attribute(
+    client: &Client,
+    unique_file_id: &String,
+    task_type: &TaskType,
+    text: &String,
+) -> Result<(), Error> {
+    let table = env::var("DYNAMODB_TABLE").unwrap();
+    let key = AttributeValue::S(unique_file_id.to_string());
+    let task_type = task_type.to_string();
+    let text = AttributeValue::S(text.to_string());
+
+    info!(
+        "Updating DynamoDB table '{}' for unique_file_id '{}'",
+        table, unique_file_id
+    );
+
+    client
+        .update_item()
+        .table_name(table)
+        .key("id", key)
+        .update_expression(format!("SET #{} = :text", task_type))
+        .expression_attribute_names(format!("#{}", task_type), task_type)
+        .expression_attribute_values(":text", text)
+        .send()
+        .await?;
+
+    Ok(())
 }
 
 pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {

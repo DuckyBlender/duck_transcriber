@@ -1,5 +1,6 @@
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
+use dynamodb::ItemReturnInfo;
 use core::str;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
@@ -191,33 +192,43 @@ async fn handle_audio_message(
 
     // Get the transcription from DynamoDB
     let item = dynamodb::get_item(dynamodb, unique_file_id, &task_type).await;
-    if let Ok(transcription) = item {
-        if let Some(transcription) = transcription {
-            // Decrypt the blob
-            info!(
-                "Transcription found in DynamoDB for unique_file_id: {}",
-                unique_file_id
-            );
+    let transcription_type = if let Ok(transcription) = item {
+        match transcription {
+            ItemReturnInfo::Text(transcription) => {
+                info!(
+                    "Transcription found in DynamoDB for unique_file_id: {}",
+                    unique_file_id
+                );
 
-            let bot_msg = bot
-                .send_message(message.chat.id, &transcription)
-                .reply_parameters(ReplyParameters::new(message.id))
-                .disable_notification(true)
-                .await
-                .unwrap();
+                bot
+                    .send_message(message.chat.id, &transcription)
+                    .reply_parameters(ReplyParameters::new(message.id))
+                    .disable_notification(true)
+                    .await
+                    .unwrap();
 
-            if transcription == "<no text>" {
-                delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
+                return Ok(lambda_http::Response::builder()
+                    .status(200)
+                    .body(String::new())
+                    .unwrap());
             }
-
-            return Ok(lambda_http::Response::builder()
-                .status(200)
-                .body(String::new())
-                .unwrap());
+            ItemReturnInfo::Exists => {
+                info!(
+                    "Item exists in DynamoDB for unique_file_id: {} but for other task type",
+                    unique_file_id
+                );
+                ItemReturnInfo::Exists
+            }
+            ItemReturnInfo::None => {
+                info!("No items found for unique_file_id: {}", unique_file_id);
+                ItemReturnInfo::None
+            }
         }
     } else {
-        error!("Failed to get item from DynamoDB: {:?}", item);
-    }
+        error!("Failed to get item from DynamoDB: {:?}", item.err().unwrap());
+        ItemReturnInfo::None // if something happens ignore the db
+    };
+
 
     // (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
     let res = download_audio(&bot, &message).await;
@@ -266,7 +277,7 @@ async fn handle_audio_message(
         duration, mime
     );
     let now = std::time::Instant::now();
-    let transcription = transcribe::transcribe(TaskType::Transcribe, audio_bytes, mime).await;
+    let transcription = transcribe::transcribe(&task_type, audio_bytes, mime).await;
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());
 
     let transcription = match transcription {
@@ -324,7 +335,7 @@ async fn handle_audio_message(
 
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
-        text: transcription,
+        text: transcription.clone(),
         unique_file_id: unique_file_id.clone(),
         task_type: task_type.to_string(),
     };
@@ -334,9 +345,26 @@ async fn handle_audio_message(
         unique_file_id
     );
 
-    match dynamodb::add_item(dynamodb, item).await {
-        Ok(_) => info!("Successfully saved transcription to DynamoDB"),
-        Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
+    match transcription_type {
+        ItemReturnInfo::Exists => {
+            info!(
+                "Updating DynamoDB table for unique_file_id: {}",
+                unique_file_id
+            );
+            match dynamodb::append_attribute(dynamodb, unique_file_id, &task_type, &transcription).await {
+                Ok(_) => info!("Successfully updated transcription in DynamoDB"),
+                Err(e) => error!("Failed to update transcription in DynamoDB: {:?}", e),
+            }
+        }
+        ItemReturnInfo::None => {
+            match dynamodb::add_item(dynamodb, item).await {
+                Ok(_) => info!("Successfully saved transcription to DynamoDB"),
+                Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
+            }
+        }
+        ItemReturnInfo::Text(_) => {
+            unreachable!();
+        }
     }
 
     Ok(lambda_http::Response::builder()
