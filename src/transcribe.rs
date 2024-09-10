@@ -7,8 +7,11 @@ use std::env;
 use tracing::error;
 use crate::BASE_URL;
 
+#[derive(strum::Display)]
 pub enum TaskType {
+    #[strum(to_string = "transcribe")]
     Transcribe,
+    #[strum(to_string = "translate")]
     Translate,
 }
 

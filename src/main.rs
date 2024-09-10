@@ -1,10 +1,8 @@
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
+use core::str;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
-use utils::delete_message_delay;
-use utils::split_string;
-use core::str;
 use std::env;
 use std::str::FromStr;
 use teloxide::types::ChatAction;
@@ -15,6 +13,9 @@ use teloxide::utils::command::BotCommands;
 use teloxide::{net::Download, prelude::*};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::fmt;
+use transcribe::TaskType;
+use utils::delete_message_delay;
+use utils::split_string;
 
 mod dynamodb;
 mod transcribe;
@@ -33,9 +34,7 @@ enum BotCommand {
     Help,
     #[command(description = "welcome message.")]
     Start,
-    #[command(description = "amount of cached transcriptions.", alias = "cached")]
-    Cache,
-    #[command(description = "transcribe the replied audio file in English.")]
+    #[command(description = "transcribe & translate the replied audio file in English.", aliases = ["translate", "en"])]
     English,
 }
 
@@ -89,17 +88,36 @@ async fn handler(
         }
     };
 
-    // Handle commands
-    if let UpdateKind::Message(message) = &update.kind {
-        if let Some(text) = &message.text() {
-            if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username()) {
-                return handle_command(bot.clone(), message, command, dynamodb).await;
+    match update.kind {
+        UpdateKind::Message(message) => {
+            // Handle commands
+            if let Some(text) = &message.text() {
+                if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username())
+                {
+                    return handle_command(bot.clone(), &message, command, dynamodb).await;
+                }
             }
+
+            // Handle audio messages and video notes
+            if message.voice().is_some() || message.video_note().is_some() {
+                return handle_audio_message(message, bot.clone(), dynamodb, TaskType::Transcribe)
+                    .await;
+            }
+
+            // Return 200 OK for non-audio messages & non-commands
+            Ok(lambda_http::Response::builder()
+                .status(200)
+                .body(String::new())
+                .unwrap())
+        }
+        _ => {
+            debug!("Received non-message update");
+            Ok(lambda_http::Response::builder()
+                .status(200)
+                .body(String::new())
+                .unwrap())
         }
     }
-
-    // Handle audio messages
-    handle_audio_message(update, bot, dynamodb).await
 }
 
 async fn handle_command(
@@ -119,19 +137,19 @@ async fn handle_command(
                 .await
                 .unwrap();
         }
-        BotCommand::Cache => {
-            let item_count = dynamodb::get_item_count(dynamodb).await.unwrap();
-            bot.send_message(
-                message.chat.id,
-                format!("There are {} cached transcriptions.", item_count),
-            )
-            .await
-            .unwrap();
-        }
         BotCommand::English => {
-            bot.send_message(message.chat.id, "This feature is not available yet.")
-                .await
-                .unwrap();
+            // Handle audio messages and video notes in the reply
+            if let Some(reply) = message.reply_to_message() {
+                if reply.voice().is_some() || reply.video_note().is_some() {
+                    return handle_audio_message(
+                        reply.clone(),
+                        bot.clone(),
+                        dynamodb,
+                        TaskType::Translate,
+                    )
+                    .await;
+                }
+            }
         }
     }
 
@@ -142,32 +160,12 @@ async fn handle_command(
 }
 
 async fn handle_audio_message(
-    update: Update,
+    message: Message,
     bot: Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
+    task_type: TaskType,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     let unique_file_id: &String;
-
-    // Make sure the message is a voice or video note
-    let message = match update.kind {
-        UpdateKind::Message(message) => {
-            if message.voice().is_none() && message.video_note().is_none() {
-                debug!("Received non-voice, non-video note message");
-                return Ok(lambda_http::Response::builder()
-                    .status(200)
-                    .body(String::new())
-                    .unwrap());
-            }
-            message
-        }
-        _ => {
-            debug!("Received non-message update");
-            return Ok(lambda_http::Response::builder()
-                .status(200)
-                .body(String::new())
-                .unwrap());
-        }
-    };
 
     // Send "typing" indicator
     debug!("Sending typing indicator");
@@ -192,11 +190,14 @@ async fn handle_audio_message(
     }
 
     // Get the transcription from DynamoDB
-    let item = dynamodb::get_item(dynamodb, unique_file_id).await;
+    let item = dynamodb::get_item(dynamodb, unique_file_id, &task_type).await;
     if let Ok(transcription) = item {
         if let Some(transcription) = transcription {
             // Decrypt the blob
-            info!("Transcription found in DynamoDB for unique_file_id: {}", unique_file_id);
+            info!(
+                "Transcription found in DynamoDB for unique_file_id: {}",
+                unique_file_id
+            );
 
             let bot_msg = bot
                 .send_message(message.chat.id, &transcription)
@@ -265,7 +266,7 @@ async fn handle_audio_message(
         duration, mime
     );
     let now = std::time::Instant::now();
-    let transcription = transcribe::transcribe(transcribe::TaskType::Transcribe, audio_bytes, mime).await;
+    let transcription = transcribe::transcribe(TaskType::Transcribe, audio_bytes, mime).await;
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());
 
     let transcription = match transcription {
@@ -323,8 +324,9 @@ async fn handle_audio_message(
 
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
-        transcription,
+        text: transcription,
         unique_file_id: unique_file_id.clone(),
+        task_type: task_type.to_string(),
     };
 
     info!(
@@ -334,10 +336,7 @@ async fn handle_audio_message(
 
     match dynamodb::add_item(dynamodb, item).await {
         Ok(_) => info!("Successfully saved transcription to DynamoDB"),
-        Err(e) => error!(
-            "Failed to save transcription to DynamoDB: {:?}",
-            e
-        ),
+        Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
     }
 
     Ok(lambda_http::Response::builder()
@@ -392,4 +391,3 @@ pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
     let body_json: Update = serde_json::from_str(body_str)?;
     Ok(body_json)
 }
-
