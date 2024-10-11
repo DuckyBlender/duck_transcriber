@@ -1,7 +1,8 @@
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
-use dynamodb::ItemReturnInfo;
+use teloxide::types::MessageId;
 use core::str;
+use dynamodb::ItemReturnInfo;
 use lambda_http::{run, service_fn, Body, Error, Request};
 use mime::Mime;
 use std::env;
@@ -200,12 +201,8 @@ async fn handle_audio_message(
                     unique_file_id
                 );
 
-                bot
-                    .send_message(message.chat.id, &transcription)
-                    .reply_parameters(ReplyParameters::new(message.id))
-                    .disable_notification(true)
-                    .await
-                    .unwrap();
+                // Send the transcription to the user
+                safe_send(&bot, message.chat.id, Some(&transcription), message.id).await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -225,10 +222,12 @@ async fn handle_audio_message(
             }
         }
     } else {
-        error!("Failed to get item from DynamoDB: {:?}", item.err().unwrap());
+        error!(
+            "Failed to get item from DynamoDB: {:?}",
+            item.err().unwrap()
+        );
         ItemReturnInfo::None // if something happens ignore the db
     };
-
 
     // (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
     let res = download_audio(&bot, &message).await;
@@ -314,25 +313,9 @@ async fn handle_audio_message(
         .trim()
         .to_string();
 
-    // Check the transcription length
-    if transcription.len() > 4096 {
-        info!("Transcription is too long, splitting into multiple messages");
-        let parts = split_string(&transcription, 4096);
-        for part in parts {
-            bot.send_message(message.chat.id, &part)
-                .reply_parameters(ReplyParameters::new(message.id))
-                .disable_notification(true)
-                .await
-                .unwrap();
-        }
-    } else {
-        bot.send_message(message.chat.id, &transcription)
-            .reply_parameters(ReplyParameters::new(message.id))
-            .disable_notification(true)
-            .await
-            .unwrap();
-    }
-
+    // Send the transcription to the user
+    safe_send(&bot, message.chat.id, Some(&transcription), message.id).await;
+    
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
         text: transcription.clone(),
@@ -351,17 +334,17 @@ async fn handle_audio_message(
                 "Updating DynamoDB table for unique_file_id: {}",
                 unique_file_id
             );
-            match dynamodb::append_attribute(dynamodb, unique_file_id, &task_type, &transcription).await {
+            match dynamodb::append_attribute(dynamodb, unique_file_id, &task_type, &transcription)
+                .await
+            {
                 Ok(_) => info!("Successfully updated transcription in DynamoDB"),
                 Err(e) => error!("Failed to update transcription in DynamoDB: {:?}", e),
             }
         }
-        ItemReturnInfo::None => {
-            match dynamodb::add_item(dynamodb, item).await {
-                Ok(_) => info!("Successfully saved transcription to DynamoDB"),
-                Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
-            }
-        }
+        ItemReturnInfo::None => match dynamodb::add_item(dynamodb, item).await {
+            Ok(_) => info!("Successfully saved transcription to DynamoDB"),
+            Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
+        },
         ItemReturnInfo::Text(_) => {
             unreachable!();
         }
@@ -371,6 +354,30 @@ async fn handle_audio_message(
         .status(200)
         .body(String::new())
         .unwrap())
+}
+
+async fn safe_send(bot: &Bot, chat_id: ChatId, transcription: Option<&str>, reply_message: MessageId) {
+    // Send the transcription to the user
+    let transcription = transcription.unwrap_or("<no text>").trim().to_string();
+
+    // Check the transcription length
+    if transcription.len() > 4096 {
+        info!("Transcription is too long, splitting into multiple messages");
+        let parts = split_string(&transcription, 4096);
+        for part in parts {
+            bot.send_message(chat_id, &part)
+                .reply_parameters(ReplyParameters::new(reply_message))
+                .disable_notification(true)
+                .await
+                .unwrap();
+        }
+    } else {
+        bot.send_message(chat_id, &transcription)
+            .reply_parameters(ReplyParameters::new(reply_message))
+            .disable_notification(true)
+            .await
+            .unwrap();
+    }
 }
 
 async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, u32), Error> {
