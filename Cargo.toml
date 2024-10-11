@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 lambda_http = "0.13"
 lambda_runtime = "0.13"
-reqwest = { version = "0.12.7", features = [
+reqwest = { version = "0.12.8", features = [
     "multipart",
     "json",
     "native-tls-vendored",
@@ -20,8 +20,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 teloxide = { version = "0.13", features = ["macros"] }
 mime = "0.3.17"
-aws-config = { version = "1.5.5", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "1.44.1"
+aws-config = { version = "1.5.8", features = ["behavior-version-latest"] }
+aws-sdk-dynamodb = "1.50"
 strum = { version = "0.26", features = ["derive"] }
 
 [package.metadata.lambda.deploy]
