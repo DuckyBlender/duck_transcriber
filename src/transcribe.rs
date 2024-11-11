@@ -1,11 +1,11 @@
+use crate::BASE_URL;
 use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 use std::env;
 use tracing::error;
-use crate::BASE_URL;
+use tracing::warn;
 
 #[derive(strum::Display)]
 pub enum TaskType {
@@ -38,7 +38,11 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-pub async fn transcribe(task_type: &TaskType, buffer: Vec<u8>, mime: Mime) -> Result<Option<String>, String> {
+pub async fn transcribe(
+    task_type: &TaskType,
+    buffer: Vec<u8>,
+    mime: Mime,
+) -> Result<Option<String>, String> {
     // Set Groq API headers
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert(
@@ -90,10 +94,7 @@ pub async fn transcribe(task_type: &TaskType, buffer: Vec<u8>, mime: Mime) -> Re
             .unwrap();
 
         if json["error"]["code"] == "rate_limit_exceeded" {
-            warn!(
-                "Rate limit reached. Here is the response: {:?}",
-                json
-            );
+            warn!("Rate limit reached. Here is the response: {:?}", json);
 
             // DONT CHANGE THIS STRING!
             return Err("Rate limit reached.".to_string());

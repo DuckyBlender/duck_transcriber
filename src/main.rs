@@ -1,6 +1,5 @@
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
-use teloxide::types::MessageId;
 use core::str;
 use dynamodb::ItemReturnInfo;
 use lambda_http::{run, service_fn, Body, Error, Request};
@@ -9,6 +8,7 @@ use std::env;
 use std::str::FromStr;
 use teloxide::types::ChatAction;
 use teloxide::types::Message;
+use teloxide::types::MessageId;
 use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::utils::command::BotCommands;
@@ -331,7 +331,7 @@ async fn handle_audio_message(
 
     // Send the transcription to the user
     safe_send(&bot, message.chat.id, Some(&transcription), message.id).await;
-    
+
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
         text: transcription.clone(),
@@ -372,7 +372,12 @@ async fn handle_audio_message(
         .unwrap())
 }
 
-async fn safe_send(bot: &Bot, chat_id: ChatId, transcription: Option<&str>, reply_message: MessageId) {
+async fn safe_send(
+    bot: &Bot,
+    chat_id: ChatId,
+    transcription: Option<&str>,
+    reply_message: MessageId,
+) {
     // Send the transcription to the user
     let transcription = transcription.unwrap_or("<no text>").trim().to_string();
 
