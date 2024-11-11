@@ -414,6 +414,11 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
                 file.size / 1024 / 1024
             )));
         }
+        info!(
+            "File size: {} bytes ({}MB)",
+            file.size,
+            file.size / 1024 / 1024
+        );
         mime = voice
             .mime_type
             .clone()
@@ -428,6 +433,11 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
                 file.size / 1024 / 1024
             )));
         }
+        info!(
+            "File size: {} bytes ({}MB)",
+            file.size,
+            file.size / 1024 / 1024
+        );
         mime = Mime::from_str("video/mp4").unwrap();
         duration = video_note.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
