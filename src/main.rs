@@ -32,12 +32,14 @@ pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 enum BotCommand {
-    #[command(description = "display this text.")]
+    #[command(description = "display this text")]
     Help,
-    #[command(description = "welcome message.")]
+    #[command(description = "welcome message")]
     Start,
-    #[command(description = "transcribe & translate the replied audio file in English.", aliases = ["translate", "en"])]
-    English,
+    #[command(description = "transcribe the replied audio")]
+    Transcribe,
+    #[command(description = "transcribe & translate the replied audio file in English.", aliases = ["english", "en"])]
+    Translate,
 }
 
 #[tokio::main]
@@ -139,7 +141,7 @@ async fn handle_command(
                 .await
                 .unwrap();
         }
-        BotCommand::English => {
+        BotCommand::Translate => {
             // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
                 if reply.voice().is_some() || reply.video_note().is_some() {
@@ -148,6 +150,20 @@ async fn handle_command(
                         bot.clone(),
                         dynamodb,
                         TaskType::Translate,
+                    )
+                    .await;
+                }
+            }
+        }
+        BotCommand::Transcribe => {
+            // Handle audio messages and video notes in the reply
+            if let Some(reply) = message.reply_to_message() {
+                if reply.voice().is_some() || reply.video_note().is_some() {
+                    return handle_audio_message(
+                        reply.clone(),
+                        bot.clone(),
+                        dynamodb,
+                        TaskType::Transcribe,
                     )
                     .await;
                 }
