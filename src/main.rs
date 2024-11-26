@@ -144,7 +144,10 @@ async fn handle_command(
         BotCommand::Translate => {
             // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
-                if reply.voice().is_some() || reply.video_note().is_some() || reply.video().is_some() {
+                if reply.voice().is_some()
+                    || reply.video_note().is_some()
+                    || reply.video().is_some()
+                {
                     return handle_audio_message(
                         reply.clone(),
                         bot.clone(),
@@ -158,7 +161,10 @@ async fn handle_command(
         BotCommand::Transcribe => {
             // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
-                if reply.voice().is_some() || reply.video_note().is_some() || reply.video().is_some() {
+                if reply.voice().is_some()
+                    || reply.video_note().is_some()
+                    || reply.video().is_some()
+                {
                     return handle_audio_message(
                         reply.clone(),
                         bot.clone(),
@@ -444,6 +450,25 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         );
         mime = Mime::from_str("video/mp4").unwrap();
         duration = video_note.duration;
+        bot.download_file(&file.path, &mut audio_bytes).await?;
+    } else if let Some(video_file) = message.video() {
+        let file = bot.get_file(&video_file.file.id).await?;
+        if file.size > MAX_FILE_SIZE * 1024 * 1024 {
+            return Err(Error::from(format!(
+                "File can't be larger than {MAX_FILE_SIZE}MB (current size: {}MB)",
+                file.size / 1024 / 1024
+            )));
+        }
+        info!(
+            "File size: {} bytes ({}MB)",
+            file.size,
+            file.size / 1024 / 1024
+        );
+        mime = video_file
+            .mime_type
+            .clone()
+            .unwrap_or_else(|| Mime::from_str("video/mp4").unwrap());
+        duration = video_file.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else {
         return Err(Error::from("Unsupported message type"));
