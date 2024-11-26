@@ -137,14 +137,14 @@ async fn handle_command(
                 .unwrap();
         }
         BotCommand::Start => {
-            bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands. Currently there are no other commands available.")
+            bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands.")
                 .await
                 .unwrap();
         }
         BotCommand::Translate => {
             // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
-                if reply.voice().is_some() || reply.video_note().is_some() {
+                if reply.voice().is_some() || reply.video_note().is_some() || reply.video().is_some() {
                     return handle_audio_message(
                         reply.clone(),
                         bot.clone(),
@@ -158,7 +158,7 @@ async fn handle_command(
         BotCommand::Transcribe => {
             // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
-                if reply.voice().is_some() || reply.video_note().is_some() {
+                if reply.voice().is_some() || reply.video_note().is_some() || reply.video().is_some() {
                     return handle_audio_message(
                         reply.clone(),
                         bot.clone(),
@@ -194,7 +194,7 @@ async fn handle_audio_message(
         warn!("Failed to send typing indicator: {:?}", e);
     }
 
-    // Check if the message is a voice or video note
+    // Check if the message is a voice or video note or just a video
     if let Some(voice) = message.voice() {
         let filemeta = &voice.file;
         unique_file_id = &filemeta.unique_id;
@@ -203,6 +203,10 @@ async fn handle_audio_message(
         let filemeta = &video_note.file;
         unique_file_id = &filemeta.unique_id;
         info!("Received video note!");
+    } else if let Some(video_file) = message.video() {
+        let filemeta = &video_file.file;
+        unique_file_id = &filemeta.unique_id;
+        info!("Received video message!");
     } else {
         unreachable!();
     }

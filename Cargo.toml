@@ -6,13 +6,13 @@ edition = "2021"
 [dependencies]
 lambda_http = "0.13"
 lambda_runtime = "0.13"
-reqwest = { version = "0.12.8", features = [
+reqwest = { version = "0.12.9", features = [
     "multipart",
     "json",
     "native-tls-vendored",
 ], default-features = false }
-serde = "1.0.210"
-serde_json = "1.0.128"
+serde = "1.0.215"
+serde_json = "1.0.133"
 tokio = { version = "1.40", features = ["full"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = [
@@ -21,7 +21,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 teloxide = { version = "0.13", features = ["macros"] }
 mime = "0.3.17"
 aws-config = { version = "1.5.8", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "1.50"
+aws-sdk-dynamodb = "1.54"
 strum = { version = "0.26", features = ["derive"] }
 
 [package.metadata.lambda.deploy]
