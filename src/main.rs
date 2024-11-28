@@ -474,6 +474,23 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         return Err(Error::from("Unsupported message type"));
     }
 
+    const MIME_TYPES: &[&str] = &[
+        "audio/mpeg",
+        "video/mp4",
+        "video/mpeg",
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/wav",
+        "video/webm",
+    ];
+
+    if !MIME_TYPES.contains(&mime.essence_str()) {
+        return Err(Error::from(format!(
+            "Unsupported mime type: {}. Supported types: {:?}",
+            mime, MIME_TYPES
+        )));
+    }
+
     Ok((audio_bytes, mime, duration.seconds()))
 }
 
