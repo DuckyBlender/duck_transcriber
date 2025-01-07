@@ -105,11 +105,14 @@ pub async fn transcribe(
     }
 
     // Extract all of the segments
-    let res = res
-        .json::<OpenAIWhisperResponse>()
-        .await
-        .map_err(|err| format!("Failed to parse OpenAI response: {err}"))
-        .unwrap();
+    let res = res.json::<OpenAIWhisperResponse>().await;
+
+    if let Err(err) = res {
+        error!("Failed to parse OpenAI response: {}", err);
+        return Err("Failed to parse OpenAI response".to_string());
+    }
+
+    let res = res.unwrap();
 
     let mut output_text = String::new();
 
