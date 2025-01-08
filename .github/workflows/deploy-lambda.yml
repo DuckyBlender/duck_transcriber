@@ -1,0 +1,45 @@
+name: Deploy Rust App to AWS Lambda
+
+on:
+  push:
+    branches:
+      - main 
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-lambda
+        run: cargo install cargo-lambda
+
+      - name: Install AWS CLI
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install
+
+      - name: Install Zig for cross-compilation
+        run: |
+          snap install zig --classic --beta
+
+      - name: Set up .env file
+        run: |
+          echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > .env
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
+          echo "DYNAMODB_TABLE=${{ secrets.DYNAMODB_TABLE }}" >> .env
+
+      - name: Build with cargo-lambda (cross-compile for arm64)
+        run: cargo lambda build --arm64 --release
+
+      - name: Deploy with cargo-lambda
+        run: cargo lambda deploy --env-file .env
