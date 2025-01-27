@@ -3,6 +3,8 @@ use aws_config::BehaviorVersion;
 use core::str;
 use dynamodb::ItemReturnInfo;
 use lambda_http::{run, service_fn, Body, Error, Request};
+use log::LevelFilter;
+use log::{debug, error, info, warn};
 use mime::Mime;
 use std::env;
 use std::str::FromStr;
@@ -13,8 +15,6 @@ use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::utils::command::BotCommands;
 use teloxide::{net::Download, prelude::*};
-use tracing::{debug, error, info, warn};
-use tracing_subscriber::fmt;
 use transcribe::TaskType;
 use utils::delete_message_delay;
 use utils::split_string;
@@ -22,6 +22,7 @@ use utils::split_string;
 mod dynamodb;
 mod transcribe;
 mod utils;
+mod summarize;
 
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)
@@ -47,11 +48,11 @@ enum BotCommand {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize tracing for logging
-    fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_target(false)
-        .without_time()
-        .init();
+    fern::Dispatch::new()
+        .format(|out, message, _| out.finish(format_args!("{}", message)))
+        .level(LevelFilter::Info)
+        .chain(std::io::stdout())
+        .apply()?;
 
     // Setup telegram bot (we do it here because this place is a cold start)
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set!"));
@@ -488,7 +489,7 @@ async fn handle_summarization(
     };
 
     // Summarize the transcription
-    let summary = match transcribe::summarize(&transcription).await {
+    let summary = match summarize::summarize(&transcription).await {
         Ok(summary) => summary,
         Err(e) => {
             bot.send_message(message.chat.id, format!("ERROR: {e}"))

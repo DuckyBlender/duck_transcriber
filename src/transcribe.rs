@@ -1,11 +1,10 @@
 use crate::BASE_URL;
+use log::{error, warn};
 use mime::Mime;
 use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use std::env;
-use tracing::error;
-use tracing::warn;
 
 #[derive(strum::Display)]
 pub enum TaskType {
@@ -16,16 +15,16 @@ pub enum TaskType {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct OpenAIWhisperResponse {
+struct GroqWhisperResponse {
     task: String,
     language: String,
     duration: f64,
     text: String,
-    segments: Vec<OpenAIWhisperSegment>,
+    segments: Vec<GroqWhisperSegment>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct OpenAIWhisperSegment {
+struct GroqWhisperSegment {
     id: u32,
     seek: u32,
     start: f64,
@@ -38,82 +37,6 @@ struct OpenAIWhisperSegment {
     no_speech_prob: f64,
 }
 
-#[derive(Debug, Serialize)]
-struct GroqChatRequest {
-    model: String,
-    messages: Vec<GroqChatMessage>,
-    temperature: f32,
-    max_tokens: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GroqChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqChatResponse {
-    choices: Vec<GroqChatChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqChatChoice {
-    message: GroqChatMessage,
-}
-
-pub async fn summarize(text: &str) -> Result<String, String> {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        format!(
-            "Bearer {}",
-            env::var("GROQ_API_KEY").expect("GROQ_API_KEY not found")
-        )
-        .parse()
-        .unwrap(),
-    );
-
-    let request = GroqChatRequest {
-        model: "llama-3.1-8b-instant".to_string(),
-        messages: vec![
-            GroqChatMessage {
-                role: "system".to_string(),
-                content: "You are a helpful assistant that summarizes text in its original language. Keep the key points and main ideas. Make the summary concise but comprehensive.".to_string(),
-            },
-            GroqChatMessage {
-                role: "user".to_string(),
-                content: text.to_string(),
-            },
-        ],
-        temperature: 0.7,
-        max_tokens: 512,
-    };
-
-    let client = reqwest::Client::new();
-    let res = client
-        .post(format!("{}/chat/completions", BASE_URL))
-        .headers(headers)
-        .json(&request)
-        .send()
-        .await
-        .map_err(|err| format!("Failed to send request to Groq: {}", err))?;
-
-    if !res.status().is_success() {
-        let json = res
-            .json::<serde_json::Value>()
-            .await
-            .map_err(|err| format!("Failed to parse Groq error response: {err}"))?;
-        return Err(format!("Groq returned an error: {}", json["error"]["message"]));
-    }
-
-    let response = res
-        .json::<GroqChatResponse>()
-        .await
-        .map_err(|err| format!("Failed to parse Groq response: {}", err))?;
-
-    Ok(response.choices[0].message.content.trim().to_string())
-}
 
 pub async fn transcribe(
     task_type: &TaskType,
@@ -182,7 +105,7 @@ pub async fn transcribe(
     }
 
     // Extract all of the segments
-    let res = res.json::<OpenAIWhisperResponse>().await;
+    let res = res.json::<GroqWhisperResponse>().await;
 
     if let Err(err) = res {
         error!("Failed to parse OpenAI response: {}", err);

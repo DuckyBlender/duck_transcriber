@@ -13,16 +13,14 @@ reqwest = { version = "0.12.12", features = [
 ], default-features = false }
 serde = "1.0.215"
 serde_json = "1.0.135"
-tokio = { version = "1.40", features = ["full"] }
-tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "fmt",
-] }
+tokio = { version = "1.43", features = ["full"] }
 teloxide = { version = "0.13", features = ["macros", "rustls"], default-features = false }
 mime = "0.3.17"
-aws-config = { version = "1.5.8", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "1.54"
+aws-config = { version = "1.5.15", features = ["behavior-version-latest"] }
+aws-sdk-dynamodb = "1.62"
 strum = { version = "0.26", features = ["derive"] }
+log = "0.4.25"
+fern = "0.7.1"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory
