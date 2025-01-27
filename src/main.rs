@@ -14,16 +14,16 @@ use teloxide::types::MessageId;
 use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::utils::command::BotCommands;
-use teloxide::{net::Download, prelude::*};
 use teloxide::utils::markdown::escape;
+use teloxide::{net::Download, prelude::*};
 use transcribe::TaskType;
 use utils::delete_message_delay;
 use utils::split_string;
 
 mod dynamodb;
+mod summarize;
 mod transcribe;
 mod utils;
-mod summarize;
 
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)

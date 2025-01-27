@@ -37,7 +37,6 @@ struct GroqWhisperSegment {
     no_speech_prob: f64,
 }
 
-
 pub async fn transcribe(
     task_type: &TaskType,
     buffer: Vec<u8>,

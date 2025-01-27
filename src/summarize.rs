@@ -1,11 +1,10 @@
 use std::env;
 
 use reqwest::header::HeaderMap;
-use serde::{Deserialize, Serialize};
 use reqwest::header::AUTHORIZATION;
+use serde::{Deserialize, Serialize};
 
 use crate::BASE_URL;
-
 
 #[derive(Debug, Serialize)]
 struct GroqChatRequest {
@@ -30,8 +29,6 @@ struct GroqChatResponse {
 struct GroqChatChoice {
     message: GroqChatMessage,
 }
-
-
 
 pub async fn summarize(text: &str) -> Result<String, String> {
     let mut headers = HeaderMap::new();
