@@ -15,6 +15,7 @@ use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::utils::command::BotCommands;
 use teloxide::{net::Download, prelude::*};
+use teloxide::utils::markdown::escape;
 use transcribe::TaskType;
 use utils::delete_message_delay;
 use utils::split_string;
@@ -504,8 +505,10 @@ async fn handle_summarization(
         }
     };
 
+    // Format summary in italics and escape markdown
+    let formatted_summary = format!("_{}_", escape(&summary));
     // Send the summary to the user
-    safe_send(&bot, message.chat.id, Some(&summary), message.id).await;
+    safe_send(&bot, message.chat.id, Some(&formatted_summary), message.id).await;
 
     Ok(lambda_http::Response::builder()
         .status(200)
