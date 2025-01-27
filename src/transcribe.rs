@@ -46,7 +46,7 @@ struct GroqChatRequest {
     max_tokens: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct GroqChatMessage {
     role: String,
     content: String,
@@ -74,14 +74,18 @@ pub async fn summarize(text: &str) -> Result<String, String> {
         .unwrap(),
     );
 
-    let prompt = format!("Please summarize the following text in its original language, keeping the key points and main ideas. Make the summary concise but comprehensive:\n\n{}", text);
-
     let request = GroqChatRequest {
-        model: "llama-3-8b-8192".to_string(),
-        messages: vec![GroqChatMessage {
-            role: "user".to_string(),
-            content: prompt,
-        }],
+        model: "llama-3.1-8b-instant".to_string(),
+        messages: vec![
+            GroqChatMessage {
+                role: "system".to_string(),
+                content: "You are a helpful assistant that summarizes text in its original language. Keep the key points and main ideas. Make the summary concise but comprehensive.".to_string(),
+            },
+            GroqChatMessage {
+                role: "user".to_string(),
+                content: text.to_string(),
+            },
+        ],
         temperature: 0.7,
         max_tokens: 512,
     };
