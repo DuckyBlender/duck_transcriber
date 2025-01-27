@@ -40,6 +40,8 @@ enum BotCommand {
     Transcribe,
     #[command(description = "transcribe & translate the replied audio file in English.", aliases = ["english", "en"])]
     Translate,
+    #[command(description = "summarize the replied audio message")]
+    Summarize,
 }
 
 #[tokio::main]
@@ -172,6 +174,17 @@ async fn handle_command(
                         TaskType::Transcribe,
                     )
                     .await;
+                }
+            }
+        }
+        BotCommand::Summarize => {
+            // Handle audio messages and video notes in the reply
+            if let Some(reply) = message.reply_to_message() {
+                if reply.voice().is_some()
+                    || reply.video_note().is_some()
+                    || reply.video().is_some()
+                {
+                    return handle_summarization(reply.clone(), bot.clone(), dynamodb).await;
                 }
             }
         }
@@ -375,6 +388,123 @@ async fn handle_audio_message(
             unreachable!();
         }
     }
+
+    Ok(lambda_http::Response::builder()
+        .status(200)
+        .body(String::new())
+        .unwrap())
+}
+
+async fn handle_summarization(
+    message: Message,
+    bot: Bot,
+    dynamodb: &aws_sdk_dynamodb::Client,
+) -> Result<lambda_http::Response<String>, lambda_http::Error> {
+    let unique_file_id: &String;
+
+    // Send "typing" indicator
+    debug!("Sending typing indicator");
+    let action = bot
+        .send_chat_action(message.chat.id, ChatAction::Typing)
+        .await;
+    if let Err(e) = action {
+        warn!("Failed to send typing indicator: {:?}", e);
+    }
+
+    // Check if the message is a voice or video note or just a video
+    if let Some(voice) = message.voice() {
+        let filemeta = &voice.file;
+        unique_file_id = &filemeta.unique_id;
+        info!("Received voice message!");
+    } else if let Some(video_note) = message.video_note() {
+        let filemeta = &video_note.file;
+        unique_file_id = &filemeta.unique_id;
+        info!("Received video note!");
+    } else if let Some(video_file) = message.video() {
+        let filemeta = &video_file.file;
+        unique_file_id = &filemeta.unique_id;
+        info!("Received video message!");
+    } else {
+        unreachable!();
+    }
+
+    // Get the transcription from DynamoDB
+    let item = dynamodb::get_item(dynamodb, unique_file_id, &TaskType::Transcribe).await;
+    let transcription = match item {
+        Ok(ItemReturnInfo::Text(transcription)) => {
+            info!(
+                "Transcription found in DynamoDB for unique_file_id: {}",
+                unique_file_id
+            );
+            transcription
+        }
+        _ => {
+            // If we don't have a transcription, get it first
+            let res = download_audio(&bot, &message).await;
+            if let Err(e) = res {
+                error!("Failed to download audio: {:?}", e);
+                let bot_msg = bot
+                    .send_message(message.chat.id, format!("ERROR: {e}"))
+                    .reply_parameters(ReplyParameters::new(message.id))
+                    .disable_notification(true)
+                    .await
+                    .unwrap();
+
+                delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
+
+                return Ok(lambda_http::Response::builder()
+                    .status(200)
+                    .body(String::new())
+                    .unwrap());
+            }
+
+            let (audio_bytes, mime, _) = res.unwrap();
+            match transcribe::transcribe(&TaskType::Transcribe, audio_bytes, mime).await {
+                Ok(Some(transcription)) => transcription,
+                Ok(None) => {
+                    bot.send_message(message.chat.id, "No text found in audio")
+                        .reply_parameters(ReplyParameters::new(message.id))
+                        .disable_notification(true)
+                        .await
+                        .unwrap();
+                    return Ok(lambda_http::Response::builder()
+                        .status(200)
+                        .body(String::new())
+                        .unwrap());
+                }
+                Err(e) => {
+                    bot.send_message(message.chat.id, format!("ERROR: {e}"))
+                        .reply_parameters(ReplyParameters::new(message.id))
+                        .disable_notification(true)
+                        .await
+                        .unwrap();
+                    return Ok(lambda_http::Response::builder()
+                        .status(200)
+                        .body(String::new())
+                        .unwrap());
+                }
+            }
+        }
+    };
+
+    // Summarize the transcription
+    let summary = match transcribe::summarize(&transcription).await {
+        Ok(summary) => summary,
+        Err(e) => {
+            bot.send_message(message.chat.id, format!("ERROR: {e}"))
+                .reply_parameters(ReplyParameters::new(message.id))
+                .disable_notification(true)
+                .await
+                .unwrap();
+            return Ok(lambda_http::Response::builder()
+                .status(200)
+                .body(String::new())
+                .unwrap());
+        }
+    };
+
+    // Send the summary to the user
+    safe_send(&bot, message.chat.id, Some(&summary), message.id).await;
 
     Ok(lambda_http::Response::builder()
         .status(200)
