@@ -16,3 +16,4 @@ Cargo.lock
 .env
 Cargo.lock
 experimental/
+.aider*
