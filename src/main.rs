@@ -8,11 +8,11 @@ use log::{debug, error, info, warn};
 use mime::Mime;
 use std::env;
 use std::str::FromStr;
-use teloxide::types::ChatAction;
 use teloxide::types::Message;
 use teloxide::types::MessageId;
 use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
+use teloxide::types::{ChatAction, ParseMode};
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
@@ -243,7 +243,14 @@ async fn handle_audio_message(
                 );
 
                 // Send the transcription to the user
-                safe_send(&bot, message.chat.id, Some(&transcription), message.id).await;
+                safe_send(
+                    &bot,
+                    message.chat.id,
+                    Some(&transcription),
+                    message.id,
+                    None,
+                )
+                .await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -355,7 +362,14 @@ async fn handle_audio_message(
         .to_string();
 
     // Send the transcription to the user
-    safe_send(&bot, message.chat.id, Some(&transcription), message.id).await;
+    safe_send(
+        &bot,
+        message.chat.id,
+        Some(&transcription),
+        message.id,
+        None,
+    )
+    .await;
 
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
@@ -508,7 +522,14 @@ async fn handle_summarization(
     // Format summary in italics and escape markdown
     let formatted_summary = format!("_{}_", escape(&summary));
     // Send the summary to the user
-    safe_send(&bot, message.chat.id, Some(&formatted_summary), message.id).await;
+    safe_send(
+        &bot,
+        message.chat.id,
+        Some(&formatted_summary),
+        message.id,
+        Some(ParseMode::MarkdownV2),
+    )
+    .await;
 
     Ok(lambda_http::Response::builder()
         .status(200)
@@ -521,6 +542,7 @@ async fn safe_send(
     chat_id: ChatId,
     transcription: Option<&str>,
     reply_message: MessageId,
+    parse_mode: Option<ParseMode>,
 ) {
     // Send the transcription to the user
     let transcription = transcription.unwrap_or("<no text>").trim().to_string();
@@ -532,16 +554,22 @@ async fn safe_send(
         for part in parts {
             bot.send_message(chat_id, &part)
                 .reply_parameters(ReplyParameters::new(reply_message))
+                // no parse mode here since we are splitting it and it would break the markdown
                 .disable_notification(true)
                 .await
                 .unwrap();
         }
     } else {
-        bot.send_message(chat_id, &transcription)
+        let mut bot_msg = bot
+            .send_message(chat_id, &transcription)
             .reply_parameters(ReplyParameters::new(reply_message))
-            .disable_notification(true)
-            .await
-            .unwrap();
+            .disable_notification(true);
+
+        if let Some(parse_mode) = parse_mode {
+            bot_msg = bot_msg.parse_mode(parse_mode);
+        }
+
+        bot_msg.await.unwrap();
     }
 }
 

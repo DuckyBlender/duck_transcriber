@@ -47,7 +47,7 @@ pub async fn summarize(text: &str) -> Result<String, String> {
         messages: vec![
             GroqChatMessage {
                 role: "system".to_string(),
-                content: "You are AI that summarizes transcriptions of voice messages. Make the summarization language in the transcription language. Make the summary concise but comprehensive. If you're not sure what is in the voice message or it doesn't make sense, just output three question marks.".to_string(),
+                content: "You are an AI that explains transcriptions of voice messages. Don't speak as the user, instead describe what the user is saying. Always provide the summary in English, ensuring it is concise yet comprehensive. If the content is unclear, nonsensical, or you're unsure about the message's meaning, respond **only** with three question marks (`???`). Do not include any additional text, explanations, or formatting—output **strictly** the summary or `???`.".to_string(),
             },
             GroqChatMessage {
                 role: "user".to_string(),
