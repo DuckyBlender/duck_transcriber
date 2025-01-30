@@ -9,7 +9,6 @@ use mime::Mime;
 use std::env;
 use std::str::FromStr;
 use teloxide::types::Message;
-use teloxide::types::MessageId;
 use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::types::{ChatAction, ParseMode};
@@ -514,9 +513,8 @@ async fn handle_summarization(
     // Send the summary to the user
     safe_send(
         &bot,
-        message.chat.id,
+        &message,
         Some(&formatted_summary),
-        message.id,
         Some(ParseMode::MarkdownV2),
     )
     .await;
