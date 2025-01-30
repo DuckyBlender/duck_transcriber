@@ -243,9 +243,8 @@ async fn handle_audio_message(
                 // Send the transcription to the user
                 safe_send(
                     &bot,
-                    message.chat.id,
+                    &message,
                     Some(&transcription),
-                    message.id,
                     None,
                 )
                 .await;
@@ -358,9 +357,8 @@ async fn handle_audio_message(
     // Send the transcription to the user
     safe_send(
         &bot,
-        message.chat.id,
+        &message,
         Some(&transcription),
-        message.id,
         None,
     )
     .await;
@@ -531,9 +529,8 @@ async fn handle_summarization(
 
 async fn safe_send(
     bot: &Bot,
-    chat_id: ChatId,
+    message: &Message,
     transcription: Option<&str>,
-    reply_message: MessageId,
     parse_mode: Option<ParseMode>,
 ) {
     // Send the transcription to the user
@@ -544,8 +541,8 @@ async fn safe_send(
         info!("Transcription is too long, splitting into multiple messages");
         let parts = split_string(&transcription, 4096);
         for part in parts {
-            bot.send_message(chat_id, &part)
-                .reply_parameters(ReplyParameters::new(reply_message))
+            bot.send_message(message.chat.id, &part)
+                .reply_parameters(ReplyParameters::new(message.id))
                 // no parse mode here since we are splitting it and it would break the markdown
                 .disable_notification(true)
                 .await
@@ -553,8 +550,8 @@ async fn safe_send(
         }
     } else {
         let mut bot_msg = bot
-            .send_message(chat_id, &transcription)
-            .reply_parameters(ReplyParameters::new(reply_message))
+            .send_message(message.chat.id, &transcription)
+            .reply_parameters(ReplyParameters::new(message.id))
             .disable_notification(true);
 
         if let Some(parse_mode) = parse_mode {
