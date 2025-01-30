@@ -17,7 +17,6 @@ use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
 use transcribe::TaskType;
-use utils::delete_message_delay;
 use utils::split_string;
 
 mod dynamodb;
@@ -27,7 +26,6 @@ mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)
-const DEFAULT_DELAY: u64 = 5;
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 
@@ -281,14 +279,12 @@ async fn handle_audio_message(
     let res = download_audio(&bot, &message).await;
     if let Err(e) = res {
         error!("Failed to download audio: {:?}", e);
-        let bot_msg = bot
+        bot
             .send_message(message.chat.id, format!("ERROR: {e}"))
             .reply_parameters(ReplyParameters::new(message.id))
             .disable_notification(true)
             .await
             .unwrap();
-
-        delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
 
         return Ok(lambda_http::Response::builder()
             .status(200)
@@ -338,14 +334,12 @@ async fn handle_audio_message(
                     .unwrap());
             }
             warn!("Failed to transcribe audio: {}", e);
-            let bot_msg = bot
+            bot
                 .send_message(message.chat.id, format!("ERROR: {e}"))
                 .reply_parameters(ReplyParameters::new(message.id))
                 .disable_notification(true)
                 .await
                 .unwrap();
-
-            delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
 
             // Return early if transcription failed
             return Ok(lambda_http::Response::builder()
@@ -459,14 +453,12 @@ async fn handle_summarization(
             let res = download_audio(&bot, &message).await;
             if let Err(e) = res {
                 error!("Failed to download audio: {:?}", e);
-                let bot_msg = bot
+                bot
                     .send_message(message.chat.id, format!("ERROR: {e}"))
                     .reply_parameters(ReplyParameters::new(message.id))
                     .disable_notification(true)
                     .await
                     .unwrap();
-
-                delete_message_delay(&bot, &bot_msg, DEFAULT_DELAY).await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -503,7 +495,7 @@ async fn handle_summarization(
         }
     };
 
-    // Summarize the transcription
+    // Summarize the translation
     let summary = match summarize::summarize(&translation).await {
         Ok(summary) => summary,
         Err(e) => {

@@ -1,10 +1,5 @@
 use teloxide::{prelude::Requester, types::Message, Bot};
 
-pub async fn delete_message_delay(bot: &Bot, msg: &Message, delay: u64) {
-    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-    bot.delete_message(msg.chat.id, msg.id).await.unwrap();
-}
-
 pub fn split_string(input: &str, max_length: usize) -> Vec<String> {
     let mut result = Vec::new();
     let mut current_chunk = String::new();
