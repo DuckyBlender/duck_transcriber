@@ -80,8 +80,6 @@ async fn handler(
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     // Parse JSON webhook
-    let bot = bot.clone();
-
     let update = match parse_webhook(req).await {
         Ok(message) => message,
         Err(e) => {
@@ -99,13 +97,13 @@ async fn handler(
             if let Some(text) = &message.text() {
                 if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username())
                 {
-                    return handle_command(bot.clone(), &message, command, dynamodb).await;
+                    return handle_command(bot, &message, command, dynamodb).await;
                 }
             }
 
             // Handle audio messages and video notes
             if message.voice().is_some() || message.video_note().is_some() {
-                return handle_audio_message(message, bot.clone(), dynamodb, TaskType::Transcribe)
+                return handle_audio_message(message, bot, dynamodb, TaskType::Transcribe)
                     .await;
             }
 
@@ -126,7 +124,7 @@ async fn handler(
 }
 
 async fn handle_command(
-    bot: Bot,
+    bot: &Bot,
     message: &Message,
     command: BotCommand,
     dynamodb: &aws_sdk_dynamodb::Client,
@@ -151,7 +149,7 @@ async fn handle_command(
                 {
                     return handle_audio_message(
                         reply.clone(),
-                        bot.clone(),
+                        bot,
                         dynamodb,
                         TaskType::Translate,
                     )
@@ -168,7 +166,7 @@ async fn handle_command(
                 {
                     return handle_audio_message(
                         reply.clone(),
-                        bot.clone(),
+                        bot,
                         dynamodb,
                         TaskType::Transcribe,
                     )
@@ -183,8 +181,12 @@ async fn handle_command(
                     || reply.video_note().is_some()
                     || reply.video().is_some()
                 {
-                    return handle_summarization(reply.clone(), bot.clone(), dynamodb).await;
+                    return handle_summarization(reply.clone(), bot, dynamodb).await;
                 }
+            } else {
+                bot.send_message(message.chat.id, "Reply to an audio message or video note to summarize it.")
+                    .await
+                    .unwrap();
             }
         }
     }
@@ -197,7 +199,7 @@ async fn handle_command(
 
 async fn handle_audio_message(
     message: Message,
-    bot: Bot,
+    bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
     task_type: TaskType,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
@@ -240,7 +242,7 @@ async fn handle_audio_message(
                 );
 
                 // Send the transcription to the user
-                safe_send(&bot, &message, Some(&transcription), None).await;
+                safe_send(bot, &message, Some(&transcription), None).await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -268,10 +270,10 @@ async fn handle_audio_message(
     };
 
     // (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
-    let res = download_audio(&bot, &message).await;
+    let res = download_audio(bot, &message).await;
     if let Err(e) = res {
         error!("Failed to download audio: {:?}", e);
-        bot.send_message(message.chat.id, format!("ERROR: {e}"))
+        bot.send_message(message.chat.id, format!("error: {e}"))
             .reply_parameters(ReplyParameters::new(message.id))
             .disable_notification(true)
             .await
@@ -325,7 +327,7 @@ async fn handle_audio_message(
                     .unwrap());
             }
             warn!("Failed to transcribe audio: {}", e);
-            bot.send_message(message.chat.id, format!("ERROR: {e}"))
+            bot.send_message(message.chat.id, format!("error: {e}"))
                 .reply_parameters(ReplyParameters::new(message.id))
                 .disable_notification(true)
                 .await
@@ -346,7 +348,7 @@ async fn handle_audio_message(
         .to_string();
 
     // Send the transcription to the user
-    safe_send(&bot, &message, Some(&transcription), None).await;
+    safe_send(bot, &message, Some(&transcription), None).await;
 
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
@@ -390,7 +392,7 @@ async fn handle_audio_message(
 
 async fn handle_summarization(
     message: Message,
-    bot: Bot,
+    bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     let unique_file_id: &String;
@@ -433,10 +435,10 @@ async fn handle_summarization(
         }
         _ => {
             // If we don't have a translation, get it first
-            let res = download_audio(&bot, &message).await;
+            let res = download_audio(bot, &message).await;
             if let Err(e) = res {
                 error!("Failed to download audio: {:?}", e);
-                bot.send_message(message.chat.id, format!("ERROR: {e}"))
+                bot.send_message(message.chat.id, format!("error: {e}"))
                     .reply_parameters(ReplyParameters::new(message.id))
                     .disable_notification(true)
                     .await
@@ -463,7 +465,7 @@ async fn handle_summarization(
                         .unwrap());
                 }
                 Err(e) => {
-                    bot.send_message(message.chat.id, format!("ERROR: {e}"))
+                    bot.send_message(message.chat.id, format!("error: {e}"))
                         .reply_parameters(ReplyParameters::new(message.id))
                         .disable_notification(true)
                         .await
@@ -481,7 +483,7 @@ async fn handle_summarization(
     let summary = match summarize::summarize(&translation).await {
         Ok(summary) => summary,
         Err(e) => {
-            bot.send_message(message.chat.id, format!("ERROR: {e}"))
+            bot.send_message(message.chat.id, format!("error: {e}"))
                 .reply_parameters(ReplyParameters::new(message.id))
                 .disable_notification(true)
                 .await
@@ -497,7 +499,7 @@ async fn handle_summarization(
     let formatted_summary = format!("_{}_", escape(&summary));
     // Send the summary to the user
     safe_send(
-        &bot,
+        bot,
         &message,
         Some(&formatted_summary),
         Some(ParseMode::MarkdownV2),

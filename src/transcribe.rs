@@ -89,8 +89,13 @@ pub async fn transcribe(
         let json = res
             .json::<serde_json::Value>()
             .await
-            .map_err(|err| format!("Failed to parse OpenAI error response: {err}"))
-            .unwrap();
+            .map_err(|err| format!("Failed to parse OpenAI error response: {err}"));
+
+        if let Err(err) = json {
+            error!("{}", err);
+            return Err("Failed to parse OpenAI error response".to_string());
+        }
+        let json = json.unwrap();
 
         if json["error"]["code"] == "rate_limit_exceeded" {
             warn!("Rate limit reached. Here is the response: {:?}", json);
