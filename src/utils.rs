@@ -1,5 +1,3 @@
-use teloxide::{prelude::Requester, types::Message, Bot};
-
 pub fn split_string(input: &str, max_length: usize) -> Vec<String> {
     let mut result = Vec::new();
     let mut current_chunk = String::new();

@@ -240,13 +240,7 @@ async fn handle_audio_message(
                 );
 
                 // Send the transcription to the user
-                safe_send(
-                    &bot,
-                    &message,
-                    Some(&transcription),
-                    None,
-                )
-                .await;
+                safe_send(&bot, &message, Some(&transcription), None).await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -277,8 +271,7 @@ async fn handle_audio_message(
     let res = download_audio(&bot, &message).await;
     if let Err(e) = res {
         error!("Failed to download audio: {:?}", e);
-        bot
-            .send_message(message.chat.id, format!("ERROR: {e}"))
+        bot.send_message(message.chat.id, format!("ERROR: {e}"))
             .reply_parameters(ReplyParameters::new(message.id))
             .disable_notification(true)
             .await
@@ -332,8 +325,7 @@ async fn handle_audio_message(
                     .unwrap());
             }
             warn!("Failed to transcribe audio: {}", e);
-            bot
-                .send_message(message.chat.id, format!("ERROR: {e}"))
+            bot.send_message(message.chat.id, format!("ERROR: {e}"))
                 .reply_parameters(ReplyParameters::new(message.id))
                 .disable_notification(true)
                 .await
@@ -354,13 +346,7 @@ async fn handle_audio_message(
         .to_string();
 
     // Send the transcription to the user
-    safe_send(
-        &bot,
-        &message,
-        Some(&transcription),
-        None,
-    )
-    .await;
+    safe_send(&bot, &message, Some(&transcription), None).await;
 
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
@@ -450,8 +436,7 @@ async fn handle_summarization(
             let res = download_audio(&bot, &message).await;
             if let Err(e) = res {
                 error!("Failed to download audio: {:?}", e);
-                bot
-                    .send_message(message.chat.id, format!("ERROR: {e}"))
+                bot.send_message(message.chat.id, format!("ERROR: {e}"))
                     .reply_parameters(ReplyParameters::new(message.id))
                     .disable_notification(true)
                     .await
