@@ -103,8 +103,7 @@ async fn handler(
 
             // Handle audio messages and video notes
             if message.voice().is_some() || message.video_note().is_some() {
-                return handle_audio_message(message, bot, dynamodb, TaskType::Transcribe)
-                    .await;
+                return handle_audio_message(message, bot, dynamodb, TaskType::Transcribe).await;
             }
 
             // Return 200 OK for non-audio messages & non-commands
@@ -147,13 +146,8 @@ async fn handle_command(
                     || reply.video_note().is_some()
                     || reply.video().is_some()
                 {
-                    return handle_audio_message(
-                        reply.clone(),
-                        bot,
-                        dynamodb,
-                        TaskType::Translate,
-                    )
-                    .await;
+                    return handle_audio_message(reply.clone(), bot, dynamodb, TaskType::Translate)
+                        .await;
                 }
             }
         }
@@ -184,9 +178,12 @@ async fn handle_command(
                     return handle_summarization(reply.clone(), bot, dynamodb).await;
                 }
             } else {
-                bot.send_message(message.chat.id, "Reply to an audio message or video note to summarize it.")
-                    .await
-                    .unwrap();
+                bot.send_message(
+                    message.chat.id,
+                    "Reply to an audio message or video note to summarize it.",
+                )
+                .await
+                .unwrap();
             }
         }
     }
