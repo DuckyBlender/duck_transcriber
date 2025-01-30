@@ -446,16 +446,16 @@ async fn handle_summarization(
 
     // Get the transcription from DynamoDB
     let item = dynamodb::get_item(dynamodb, unique_file_id, &TaskType::Transcribe).await;
-    let transcription = match item {
-        Ok(ItemReturnInfo::Text(transcription)) => {
+    let translation = match item {
+        Ok(ItemReturnInfo::Text(translation)) => {
             info!(
-                "Transcription found in DynamoDB for unique_file_id: {}",
+                "Translation found in DynamoDB for unique_file_id: {}",
                 unique_file_id
             );
-            transcription
+            translation
         }
         _ => {
-            // If we don't have a transcription, get it first
+            // If we don't have a translation, get it first
             let res = download_audio(&bot, &message).await;
             if let Err(e) = res {
                 error!("Failed to download audio: {:?}", e);
@@ -475,8 +475,8 @@ async fn handle_summarization(
             }
 
             let (audio_bytes, mime, _) = res.unwrap();
-            match transcribe::transcribe(&TaskType::Transcribe, audio_bytes, mime).await {
-                Ok(Some(transcription)) => transcription,
+            match transcribe::transcribe(&TaskType::Translate, audio_bytes, mime).await {
+                Ok(Some(translation)) => translation,
                 Ok(None) => {
                     bot.send_message(message.chat.id, "No text found in audio")
                         .reply_parameters(ReplyParameters::new(message.id))
@@ -504,7 +504,7 @@ async fn handle_summarization(
     };
 
     // Summarize the transcription
-    let summary = match summarize::summarize(&transcription).await {
+    let summary = match summarize::summarize(&translation).await {
         Ok(summary) => summary,
         Err(e) => {
             bot.send_message(message.chat.id, format!("ERROR: {e}"))
