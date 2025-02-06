@@ -12,12 +12,12 @@ reqwest = { version = "0.12.12", features = [
     "rustls-tls",
 ], default-features = false }
 serde = "1.0.215"
-serde_json = "1.0.135"
+serde_json = "1.0.138"
 tokio = { version = "1.43", features = ["full"] }
 teloxide = { version = "0.13", features = ["macros", "rustls"], default-features = false }
 mime = "0.3.17"
-aws-config = { version = "1.5.15", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "1.62"
+aws-config = { version = "1.5.16", features = ["behavior-version-latest"] }
+aws-sdk-dynamodb = "1.64"
 strum = { version = "0.26", features = ["derive"] }
 log = "0.4.25"
 fern = "0.7.1"
@@ -26,3 +26,4 @@ fern = "0.7.1"
 memory = 128      # Function's memory
 timeout = 60      # Function's execution timeout
 env_file = ".env" # File to load environment variables from
+layers = [ "arn:aws:lambda:eu-central-1:534406734576:layer:ffmpeg-rust:3" ] # FFmpeg layer, create your own, more info in README
