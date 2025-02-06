@@ -23,7 +23,7 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 
 - The bot is built using the `teloxide` crate for interacting with the Telegram API.
 - The transcription is done using the `reqwest` crate to send a request to the Groq Whisper API.
-- The file is first converted to a 16 kHz mono WAV file using FFmpeg before being sent to the Groq Whisper API.
+- The file is first converted to a 16 kHz mono FLAC file using FFmpeg before being sent to the Groq Whisper API.
 - The bot uses AWS DynamoDB to store and retrieve transcriptions, ensuring that repeated requests for the same audio do not require retranscription.
 - The bot is deployed as a serverless function using AWS Lambda.
 
