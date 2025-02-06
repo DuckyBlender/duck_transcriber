@@ -449,7 +449,21 @@ async fn handle_summarization(
 
             let (audio_bytes, mime, _) = res.unwrap();
             match transcribe::transcribe(&TaskType::Translate, audio_bytes, mime).await {
-                Ok(Some(translation)) => translation,
+                Ok(Some(translation)) => {
+                    // Cache the translation in DynamoDB
+                    let item = dynamodb::DBItem {
+                        text: translation.clone(),
+                        unique_file_id: unique_file_id.clone(),
+                        task_type: TaskType::Translate.to_string(),
+                    };
+                    
+                    match dynamodb::add_item(dynamodb, item).await {
+                        Ok(_) => info!("Successfully cached translation in DynamoDB"),
+                        Err(e) => error!("Failed to cache translation in DynamoDB: {:?}", e),
+                    }
+                    
+                    translation
+                }
                 Ok(None) => {
                     bot.send_message(message.chat.id, "No text found in audio")
                         .reply_parameters(ReplyParameters::new(message.id))
