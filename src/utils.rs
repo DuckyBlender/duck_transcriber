@@ -1,3 +1,7 @@
+use lambda_http::{Body, Request};
+use serde_json::Error;
+use teloxide::types::Update;
+
 pub fn split_string(input: &str, max_length: usize) -> Vec<String> {
     let mut result = Vec::new();
     let mut current_chunk = String::new();
@@ -24,4 +28,14 @@ pub fn split_string(input: &str, max_length: usize) -> Vec<String> {
     }
 
     result
+}
+
+pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
+    let body = input.body();
+    let body_str = match body {
+        Body::Text(text) => text,
+        not => panic!("expected Body::Text(...) got {not:?}"),
+    };
+    let body_json: Update = serde_json::from_str(body_str)?;
+    Ok(body_json)
 }

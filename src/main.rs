@@ -2,11 +2,14 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
 use core::str;
 use dynamodb::ItemReturnInfo;
-use lambda_http::{run, service_fn, Body, Error, Request};
+use lambda_http::{run, service_fn, Error};
 use log::LevelFilter;
 use log::{debug, error, info, warn};
 use mime::Mime;
 use std::env;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::process::Command;
 use std::str::FromStr;
 use teloxide::types::Message;
 use teloxide::types::ReplyParameters;
@@ -15,8 +18,9 @@ use teloxide::types::{ChatAction, ParseMode};
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
+use tempfile::NamedTempFile;
 use transcribe::TaskType;
-use utils::split_string;
+use utils::{parse_webhook, split_string};
 
 mod dynamodb;
 mod summarize;
@@ -24,7 +28,7 @@ mod transcribe;
 mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
-const MAX_FILE_SIZE: u32 = 25; // in MB (groq whisper limit)
+const MAX_FILE_SIZE: u32 = 20; // in MB (groq whisper limit)
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 
@@ -456,12 +460,12 @@ async fn handle_summarization(
                         unique_file_id: unique_file_id.clone(),
                         task_type: TaskType::Translate.to_string(),
                     };
-                    
+
                     match dynamodb::add_item(dynamodb, item).await {
                         Ok(_) => info!("Successfully cached translation in DynamoDB"),
                         Err(e) => error!("Failed to cache translation in DynamoDB: {:?}", e),
                     }
-                    
+
                     translation
                 }
                 Ok(None) => {
@@ -638,15 +642,47 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         )));
     }
 
-    Ok((audio_bytes, mime, duration.seconds()))
-}
+    // Write downloaded bytes to a temporary file
+    let mut temp_input_file = NamedTempFile::new()?;
+    temp_input_file.write_all(&audio_bytes)?;
 
-pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
-    let body = input.body();
-    let body_str = match body {
-        Body::Text(text) => text,
-        not => panic!("expected Body::Text(...) got {not:?}"),
-    };
-    let body_json: Update = serde_json::from_str(body_str)?;
-    Ok(body_json)
+    // Create a temporary output file with a `.flac` extension
+    let temp_output_file_path = format!("{}.flac", temp_input_file.path().to_str().unwrap());
+
+    // Run FFmpeg command to convert to FLAC
+    let output = Command::new("ffmpeg")
+        .arg("-i")
+        .arg(temp_input_file.path().to_str().unwrap())
+        .arg("-ar")
+        .arg("16000")
+        .arg("-ac")
+        .arg("1")
+        .arg("-map")
+        .arg("0:a")
+        .arg("-c:a")
+        .arg("flac")
+        .arg(&temp_output_file_path) // Use the path with the `.flac` extension
+        .output()?;
+
+    if !output.status.success() {
+        // Log the command error output (stderr)
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("FFmpeg command failed with error: {}", stderr);
+
+        // Log the command output (stdout) if needed
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        info!("FFmpeg command output: {}", stdout);
+
+        return Err(Error::from("FFmpeg conversion failed"));
+    }
+
+    // Read the converted FLAC file into memory
+    let mut flac_bytes = Vec::new();
+    File::open(&temp_output_file_path)?.read_to_end(&mut flac_bytes)?;
+
+    Ok((
+        flac_bytes,
+        Mime::from_str("audio/flac").unwrap(),
+        duration.seconds(),
+    ))
 }
