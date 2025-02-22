@@ -107,7 +107,7 @@ async fn handler(
 
             // Handle audio messages and video notes
             if message.voice().is_some() || message.video_note().is_some() {
-                return handle_audio_message(message, bot, dynamodb, TaskType::Transcribe).await;
+                return handle_audio_message(&message, bot, dynamodb, TaskType::Transcribe).await;
             }
 
             // Return 200 OK for non-audio messages & non-commands
@@ -135,11 +135,13 @@ async fn handle_command(
     match command {
         BotCommand::Help => {
             bot.send_message(message.chat.id, BotCommand::descriptions().to_string())
+                .reply_parameters(ReplyParameters::new(message.id))
                 .await
                 .unwrap();
         }
         BotCommand::Start => {
             bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands.")
+                .reply_parameters(ReplyParameters::new(message.id))
                 .await
                 .unwrap();
         }
@@ -150,9 +152,17 @@ async fn handle_command(
                     || reply.video_note().is_some()
                     || reply.video().is_some()
                 {
-                    return handle_audio_message(reply.clone(), bot, dynamodb, TaskType::Translate)
+                    return handle_audio_message(reply, bot, dynamodb, TaskType::Translate)
                         .await;
                 }
+            } else {
+                bot.send_message(
+                    message.chat.id,
+                    "Reply to an audio message or video note to translate it.",
+                )
+                .reply_parameters(ReplyParameters::new(message.id))
+                .await
+                .unwrap();
             }
         }
         BotCommand::Transcribe => {
@@ -163,13 +173,21 @@ async fn handle_command(
                     || reply.video().is_some()
                 {
                     return handle_audio_message(
-                        reply.clone(),
+                        reply,
                         bot,
                         dynamodb,
                         TaskType::Transcribe,
                     )
                     .await;
                 }
+            } else {
+                bot.send_message(
+                    message.chat.id,
+                    "Reply to an audio message or video note to transcribe it.",
+                )
+                .reply_parameters(ReplyParameters::new(message.id))
+                .await
+                .unwrap();
             }
         }
         BotCommand::Summarize => {
@@ -179,13 +197,14 @@ async fn handle_command(
                     || reply.video_note().is_some()
                     || reply.video().is_some()
                 {
-                    return handle_summarization(reply.clone(), bot, dynamodb).await;
+                    return handle_summarization(reply, bot, dynamodb).await;
                 }
             } else {
                 bot.send_message(
                     message.chat.id,
                     "Reply to an audio message or video note to summarize it.",
                 )
+                .reply_parameters(ReplyParameters::new(message.id))
                 .await
                 .unwrap();
             }
@@ -199,7 +218,7 @@ async fn handle_command(
 }
 
 async fn handle_audio_message(
-    message: Message,
+    message: &Message,
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
     task_type: TaskType,
@@ -243,7 +262,7 @@ async fn handle_audio_message(
                 );
 
                 // Send the transcription to the user
-                safe_send(bot, &message, Some(&transcription), None).await;
+                safe_send(bot, message, Some(&transcription), None).await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -271,7 +290,7 @@ async fn handle_audio_message(
     };
 
     // (audio_bytes, mime, duration) = download_audio(&bot, &message).await?;
-    let res = download_audio(bot, &message).await;
+    let res = download_audio(bot, message).await;
     if let Err(e) = res {
         error!("Failed to download audio: {:?}", e);
         bot.send_message(message.chat.id, format!("error: {e}"))
@@ -349,7 +368,7 @@ async fn handle_audio_message(
         .to_string();
 
     // Send the transcription to the user
-    safe_send(bot, &message, Some(&transcription), None).await;
+    safe_send(bot, message, Some(&transcription), None).await;
 
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
@@ -392,7 +411,7 @@ async fn handle_audio_message(
 }
 
 async fn handle_summarization(
-    message: Message,
+    message: &Message,
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
@@ -436,7 +455,7 @@ async fn handle_summarization(
         }
         _ => {
             // If we don't have a translation, get it first
-            let res = download_audio(bot, &message).await;
+            let res = download_audio(bot, message).await;
             if let Err(e) = res {
                 error!("Failed to download audio: {:?}", e);
                 bot.send_message(message.chat.id, format!("error: {e}"))
@@ -515,7 +534,7 @@ async fn handle_summarization(
     // Send the summary to the user
     safe_send(
         bot,
-        &message,
+        message,
         Some(&formatted_summary),
         Some(ParseMode::MarkdownV2),
     )
