@@ -18,7 +18,7 @@ teloxide = { version = "0.13", features = ["macros", "rustls"], default-features
 mime = "0.3.17"
 aws-config = { version = "1.5.16", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1.64"
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.27.1", features = ["derive"] }
 log = "0.4.25"
 fern = "0.7.1"
 tempfile = "3.16.0"

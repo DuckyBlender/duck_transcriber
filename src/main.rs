@@ -151,9 +151,9 @@ async fn handle_command(
                 if reply.voice().is_some()
                     || reply.video_note().is_some()
                     || reply.video().is_some()
+                    || reply.audio().is_some()
                 {
-                    return handle_audio_message(reply, bot, dynamodb, TaskType::Translate)
-                        .await;
+                    return handle_audio_message(reply, bot, dynamodb, TaskType::Translate).await;
                 }
             } else {
                 bot.send_message(
@@ -171,14 +171,9 @@ async fn handle_command(
                 if reply.voice().is_some()
                     || reply.video_note().is_some()
                     || reply.video().is_some()
+                    || reply.audio().is_some()
                 {
-                    return handle_audio_message(
-                        reply,
-                        bot,
-                        dynamodb,
-                        TaskType::Transcribe,
-                    )
-                    .await;
+                    return handle_audio_message(reply, bot, dynamodb, TaskType::Transcribe).await;
                 }
             } else {
                 bot.send_message(
@@ -196,6 +191,7 @@ async fn handle_command(
                 if reply.voice().is_some()
                     || reply.video_note().is_some()
                     || reply.video().is_some()
+                    || reply.audio().is_some()
                 {
                     return handle_summarization(reply, bot, dynamodb).await;
                 }
@@ -247,6 +243,10 @@ async fn handle_audio_message(
         let filemeta = &video_file.file;
         unique_file_id = &filemeta.unique_id;
         info!("Received video message!");
+    } else if let Some(audio) = message.audio() {
+        let filemeta = &audio.file;
+        unique_file_id = &filemeta.unique_id;
+        info!("Received audio message!");
     } else {
         unreachable!();
     }
@@ -439,6 +439,10 @@ async fn handle_summarization(
         let filemeta = &video_file.file;
         unique_file_id = &filemeta.unique_id;
         info!("Received video message!");
+    } else if let Some(audio) = message.audio() {
+        let filemeta = &audio.file;
+        unique_file_id = &filemeta.unique_id;
+        info!("Received audio message!");
     } else {
         unreachable!();
     }
