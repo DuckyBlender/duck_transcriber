@@ -447,8 +447,8 @@ async fn handle_summarization(
         unreachable!();
     }
 
-    // Get the transcription from DynamoDB
-    let item = dynamodb::get_item(dynamodb, unique_file_id, &TaskType::Transcribe).await;
+    // Try to get the translation from DynamoDB first
+    let item = dynamodb::get_item(dynamodb, unique_file_id, &TaskType::Translate).await;
     let translation = match item {
         Ok(ItemReturnInfo::Text(translation)) => {
             info!(
@@ -587,7 +587,7 @@ async fn safe_send(
 
 async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, u32), Error> {
     let mut audio_bytes = Vec::new();
-    let mime;
+    // let mime;
     let duration;
 
     if let Some(voice) = message.voice() {
@@ -603,10 +603,10 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        mime = voice
-            .mime_type
-            .clone()
-            .unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
+        // mime = voice
+        //     .mime_type
+        //     .clone()
+        //     .unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
         duration = voice.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(video_note) = message.video_note() {
@@ -622,7 +622,7 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        mime = Mime::from_str("video/mp4").unwrap();
+        // mime = Mime::from_str("video/mp4").unwrap();
         duration = video_note.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(video_file) = message.video() {
@@ -638,32 +638,52 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        mime = video_file
-            .mime_type
-            .clone()
-            .unwrap_or_else(|| Mime::from_str("video/mp4").unwrap());
+        // mime = video_file
+        //     .mime_type
+        //     .clone()
+        //     .unwrap_or_else(|| Mime::from_str("video/mp4").unwrap());
         duration = video_file.duration;
+        bot.download_file(&file.path, &mut audio_bytes).await?;
+    } else if let Some(audio) = message.audio() {
+        let file = bot.get_file(&audio.file.id).await?;
+        if file.size > MAX_FILE_SIZE * 1024 * 1024 {
+            return Err(Error::from(format!(
+                "File can't be larger than {MAX_FILE_SIZE}MB (current size: {}MB)",
+                file.size / 1024 / 1024
+            )));
+        }
+        info!(
+            "File size: {} bytes ({}MB)",
+            file.size,
+            file.size / 1024 / 1024
+        );
+        // mime = audio
+        //     .mime_type
+        //     .clone()
+        //     .unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
+        duration = audio.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else {
         return Err(Error::from("Unsupported message type"));
     }
 
-    const MIME_TYPES: &[&str] = &[
-        "audio/mpeg",
-        "video/mp4",
-        "video/mpeg",
-        "audio/ogg",
-        "audio/mp4",
-        "audio/wav",
-        "video/webm",
-    ];
+    // The following are Groq supported mime types, now we convert to a FLAC using FFMPEG so we can accept any audio type
+    // const MIME_TYPES: &[&str] = &[
+    //     "audio/mpeg",
+    //     "video/mp4",
+    //     "video/mpeg",
+    //     "audio/ogg",
+    //     "audio/mp4",
+    //     "audio/wav",
+    //     "video/webm",
+    // ];
 
-    if !MIME_TYPES.contains(&mime.essence_str()) {
-        return Err(Error::from(format!(
-            "Unsupported mime type: {}. Supported types: {:?}",
-            mime, MIME_TYPES
-        )));
-    }
+    // if !MIME_TYPES.contains(&mime.essence_str()) {
+    //     return Err(Error::from(format!(
+    //         "Unsupported mime type: {}. Supported types: {:?}",
+    //         mime, MIME_TYPES
+    //     )));
+    // }
 
     // Write downloaded bytes to a temporary file
     let mut temp_input_file = NamedTempFile::new()?;
