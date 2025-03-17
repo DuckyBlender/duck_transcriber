@@ -1,14 +1,13 @@
-use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
+use aws_config::meta::region::RegionProviderChain;
 use core::str;
 use dynamodb::ItemReturnInfo;
-use lambda_http::{run, service_fn, Error};
+use lambda_http::{Error, run, service_fn};
 use log::LevelFilter;
 use log::{debug, error, info, warn};
 use mime::Mime;
 use std::env;
-use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
 use teloxide::types::Message;
@@ -28,7 +27,8 @@ mod transcribe;
 mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
-const MAX_FILE_SIZE: u32 = 20; // in MB (groq whisper limit)
+const MAX_FILE_SIZE: u32 = 20; // in MB (telegram download limit)
+// If telegram raises the limit, we can increase this no problem, as we are using ffmpeg to convert to mono 16kHz. Groq filelimit is also much higher than 20MB
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 
@@ -51,7 +51,9 @@ enum BotCommand {
 async fn main() -> Result<(), Error> {
     // Initialize tracing for logging
     fern::Dispatch::new()
-        .format(|out, message, _| out.finish(format_args!("{}", message)))
+        .format(move |out, message, record| {
+            out.finish(format_args!("[{}] {}", record.target(), message))
+        })
         .level(LevelFilter::Info)
         .chain(std::io::stdout())
         .apply()?;
@@ -587,7 +589,6 @@ async fn safe_send(
 
 async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, u32), Error> {
     let mut audio_bytes = Vec::new();
-    // let mime;
     let duration;
 
     if let Some(voice) = message.voice() {
@@ -603,10 +604,6 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        // mime = voice
-        //     .mime_type
-        //     .clone()
-        //     .unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
         duration = voice.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(video_note) = message.video_note() {
@@ -622,7 +619,6 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        // mime = Mime::from_str("video/mp4").unwrap();
         duration = video_note.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(video_file) = message.video() {
@@ -638,10 +634,6 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        // mime = video_file
-        //     .mime_type
-        //     .clone()
-        //     .unwrap_or_else(|| Mime::from_str("video/mp4").unwrap());
         duration = video_file.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else if let Some(audio) = message.audio() {
@@ -657,42 +649,17 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
             file.size,
             file.size / 1024 / 1024
         );
-        // mime = audio
-        //     .mime_type
-        //     .clone()
-        //     .unwrap_or_else(|| Mime::from_str("audio/ogg").unwrap());
         duration = audio.duration;
         bot.download_file(&file.path, &mut audio_bytes).await?;
     } else {
         return Err(Error::from("Unsupported message type"));
     }
 
-    // The following are Groq supported mime types, now we convert to a FLAC using FFMPEG so we can accept any audio type
-    // const MIME_TYPES: &[&str] = &[
-    //     "audio/mpeg",
-    //     "video/mp4",
-    //     "video/mpeg",
-    //     "audio/ogg",
-    //     "audio/mp4",
-    //     "audio/wav",
-    //     "video/webm",
-    // ];
-
-    // if !MIME_TYPES.contains(&mime.essence_str()) {
-    //     return Err(Error::from(format!(
-    //         "Unsupported mime type: {}. Supported types: {:?}",
-    //         mime, MIME_TYPES
-    //     )));
-    // }
-
     // Write downloaded bytes to a temporary file
     let mut temp_input_file = NamedTempFile::new()?;
     temp_input_file.write_all(&audio_bytes)?;
 
-    // Create a temporary output file with a `.flac` extension
-    let temp_output_file_path = format!("{}.flac", temp_input_file.path().to_str().unwrap());
-
-    // Run FFmpeg command to convert to FLAC
+    // Run FFmpeg command to convert to FLAC and output to stdout
     let output = Command::new("ffmpeg")
         .arg("-i")
         .arg(temp_input_file.path().to_str().unwrap())
@@ -704,27 +671,25 @@ async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, 
         .arg("0:a")
         .arg("-c:a")
         .arg("flac")
-        .arg(&temp_output_file_path) // Use the path with the `.flac` extension
+        .arg("-f") // Format
+        .arg("flac")
+        .arg("pipe:1") // Output to stdout
         .output()?;
 
     if !output.status.success() {
         // Log the command error output (stderr)
         let stderr = String::from_utf8_lossy(&output.stderr);
         error!("FFmpeg command failed with error: {}", stderr);
-
-        // Log the command output (stdout) if needed
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        info!("FFmpeg command output: {}", stdout);
-
+        std::fs::remove_file(temp_input_file.path()).ok();
         return Err(Error::from("FFmpeg conversion failed"));
     }
 
-    // Read the converted FLAC file into memory
-    let mut flac_bytes = Vec::new();
-    File::open(&temp_output_file_path)?.read_to_end(&mut flac_bytes)?;
+    // Remove the temporary input file
+    std::fs::remove_file(temp_input_file.path()).ok();
 
+    // Return the FLAC bytes, MIME type, and duration
     Ok((
-        flac_bytes,
+        output.stdout, // Use stdout directly as our FLAC bytes
         Mime::from_str("audio/flac").unwrap(),
         duration.seconds(),
     ))

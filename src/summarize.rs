@@ -1,7 +1,7 @@
 use std::env;
 
-use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 
 use crate::BASE_URL;

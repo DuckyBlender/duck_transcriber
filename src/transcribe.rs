@@ -1,8 +1,8 @@
 use crate::BASE_URL;
 use log::{error, warn};
 use mime::Mime;
-use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::env;
 

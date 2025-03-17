@@ -1,6 +1,6 @@
 use std::env;
 
-use aws_sdk_dynamodb::{types::AttributeValue, Client, Error};
+use aws_sdk_dynamodb::{Client, Error, types::AttributeValue};
 use log::info;
 
 use crate::transcribe::TaskType;
