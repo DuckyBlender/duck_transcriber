@@ -11,7 +11,6 @@ use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
 use teloxide::types::Message;
-use teloxide::types::ReplyParameters;
 use teloxide::types::UpdateKind;
 use teloxide::types::{ChatAction, ParseMode};
 use teloxide::utils::command::BotCommands;
@@ -19,7 +18,7 @@ use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
 use tempfile::NamedTempFile;
 use transcribe::TaskType;
-use utils::{parse_webhook, split_string};
+use utils::{parse_webhook, safe_send};
 
 mod dynamodb;
 mod summarize;
@@ -136,19 +135,18 @@ async fn handle_command(
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
     match command {
         BotCommand::Help => {
-            bot.send_message(message.chat.id, BotCommand::descriptions().to_string())
-                .reply_parameters(ReplyParameters::new(message.id))
-                .await
-                .unwrap();
+            let desc = BotCommand::descriptions().to_string();
+            safe_send(bot, message, Some(&desc), None).await;
         }
         BotCommand::Start => {
-            bot.send_message(message.chat.id, "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands.")
-                .reply_parameters(ReplyParameters::new(message.id))
-                .await
-                .unwrap();
+            safe_send(
+                bot,
+                message,
+                Some("Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands."),
+                None
+            ).await;
         }
         BotCommand::Translate => {
-            // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
                 if reply.voice().is_some()
                     || reply.video_note().is_some()
@@ -158,17 +156,16 @@ async fn handle_command(
                     return handle_audio_message(reply, bot, dynamodb, TaskType::Translate).await;
                 }
             } else {
-                bot.send_message(
-                    message.chat.id,
-                    "Reply to an audio message or video note to translate it.",
+                safe_send(
+                    bot,
+                    message,
+                    Some("Reply to an audio message or video note to translate it."),
+                    None,
                 )
-                .reply_parameters(ReplyParameters::new(message.id))
-                .await
-                .unwrap();
+                .await;
             }
         }
         BotCommand::Transcribe => {
-            // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
                 if reply.voice().is_some()
                     || reply.video_note().is_some()
@@ -178,17 +175,16 @@ async fn handle_command(
                     return handle_audio_message(reply, bot, dynamodb, TaskType::Transcribe).await;
                 }
             } else {
-                bot.send_message(
-                    message.chat.id,
-                    "Reply to an audio message or video note to transcribe it.",
+                safe_send(
+                    bot,
+                    message,
+                    Some("Reply to an audio message or video note to transcribe it."),
+                    None,
                 )
-                .reply_parameters(ReplyParameters::new(message.id))
-                .await
-                .unwrap();
+                .await;
             }
         }
         BotCommand::Summarize => {
-            // Handle audio messages and video notes in the reply
             if let Some(reply) = message.reply_to_message() {
                 if reply.voice().is_some()
                     || reply.video_note().is_some()
@@ -198,13 +194,13 @@ async fn handle_command(
                     return handle_summarization(reply, bot, dynamodb).await;
                 }
             } else {
-                bot.send_message(
-                    message.chat.id,
-                    "Reply to an audio message or video note to summarize it.",
+                safe_send(
+                    bot,
+                    message,
+                    Some("Reply to an audio message or video note to summarize it."),
+                    None,
                 )
-                .reply_parameters(ReplyParameters::new(message.id))
-                .await
-                .unwrap();
+                .await;
             }
         }
     }
@@ -295,11 +291,7 @@ async fn handle_audio_message(
     let res = download_audio(bot, message).await;
     if let Err(e) = res {
         error!("Failed to download audio: {:?}", e);
-        bot.send_message(message.chat.id, format!("error: {e}"))
-            .reply_parameters(ReplyParameters::new(message.id))
-            .disable_notification(true)
-            .await
-            .unwrap();
+        safe_send(bot, message, Some(&format!("error: {e}")), None).await;
 
         return Ok(lambda_http::Response::builder()
             .status(200)
@@ -312,14 +304,13 @@ async fn handle_audio_message(
     // If the duration is above MAX_DURATION
     if duration > MAX_DURATION * 60 {
         warn!("The audio message is above {MAX_DURATION} minutes!");
-        bot.send_message(
-            message.chat.id,
-            format!("Duration is above {} minutes", MAX_DURATION * 60),
+        safe_send(
+            bot,
+            message,
+            Some(&format!("Duration is above {} minutes", MAX_DURATION * 60)),
+            None,
         )
-        .reply_parameters(ReplyParameters::new(message.id))
-        .disable_notification(true)
-        .await
-        .unwrap();
+        .await;
 
         // we don't want to delete the message
         // Return early if the audio is too long
@@ -349,11 +340,7 @@ async fn handle_audio_message(
                     .unwrap());
             }
             warn!("Failed to transcribe audio: {}", e);
-            bot.send_message(message.chat.id, format!("error: {e}"))
-                .reply_parameters(ReplyParameters::new(message.id))
-                .disable_notification(true)
-                .await
-                .unwrap();
+            safe_send(bot, message, Some(&format!("error: {e}")), None).await;
 
             // Return early if transcription failed
             return Ok(lambda_http::Response::builder()
@@ -464,11 +451,7 @@ async fn handle_summarization(
             let res = download_audio(bot, message).await;
             if let Err(e) = res {
                 error!("Failed to download audio: {:?}", e);
-                bot.send_message(message.chat.id, format!("error: {e}"))
-                    .reply_parameters(ReplyParameters::new(message.id))
-                    .disable_notification(true)
-                    .await
-                    .unwrap();
+                safe_send(bot, message, Some(&format!("error: {e}")), None).await;
 
                 return Ok(lambda_http::Response::builder()
                     .status(200)
@@ -494,22 +477,14 @@ async fn handle_summarization(
                     translation
                 }
                 Ok(None) => {
-                    bot.send_message(message.chat.id, "No text found in audio")
-                        .reply_parameters(ReplyParameters::new(message.id))
-                        .disable_notification(true)
-                        .await
-                        .unwrap();
+                    safe_send(bot, message, Some("No text found in audio"), None).await;
                     return Ok(lambda_http::Response::builder()
                         .status(200)
                         .body(String::new())
                         .unwrap());
                 }
                 Err(e) => {
-                    bot.send_message(message.chat.id, format!("error: {e}"))
-                        .reply_parameters(ReplyParameters::new(message.id))
-                        .disable_notification(true)
-                        .await
-                        .unwrap();
+                    safe_send(bot, message, Some(&format!("error: {e}")), None).await;
                     return Ok(lambda_http::Response::builder()
                         .status(200)
                         .body(String::new())
@@ -523,11 +498,7 @@ async fn handle_summarization(
     let summary = match summarize::summarize(&translation).await {
         Ok(summary) => summary,
         Err(e) => {
-            bot.send_message(message.chat.id, format!("error: {e}"))
-                .reply_parameters(ReplyParameters::new(message.id))
-                .disable_notification(true)
-                .await
-                .unwrap();
+            safe_send(bot, message, Some(&format!("error: {e}")), None).await;
             return Ok(lambda_http::Response::builder()
                 .status(200)
                 .body(String::new())
@@ -550,41 +521,6 @@ async fn handle_summarization(
         .status(200)
         .body(String::new())
         .unwrap())
-}
-
-async fn safe_send(
-    bot: &Bot,
-    message: &Message,
-    transcription: Option<&str>,
-    parse_mode: Option<ParseMode>,
-) {
-    // Send the transcription to the user
-    let transcription = transcription.unwrap_or("<no text>").trim().to_string();
-
-    // Check the transcription length
-    if transcription.len() > 4096 {
-        info!("Transcription is too long, splitting into multiple messages");
-        let parts = split_string(&transcription, 4096);
-        for part in parts {
-            bot.send_message(message.chat.id, &part)
-                .reply_parameters(ReplyParameters::new(message.id))
-                // no parse mode here since we are splitting it and it would break the markdown
-                .disable_notification(true)
-                .await
-                .unwrap();
-        }
-    } else {
-        let mut bot_msg = bot
-            .send_message(message.chat.id, &transcription)
-            .reply_parameters(ReplyParameters::new(message.id))
-            .disable_notification(true);
-
-        if let Some(parse_mode) = parse_mode {
-            bot_msg = bot_msg.parse_mode(parse_mode);
-        }
-
-        bot_msg.await.unwrap();
-    }
 }
 
 async fn download_audio(bot: &Bot, message: &Message) -> Result<(Vec<u8>, Mime, u32), Error> {
