@@ -108,7 +108,7 @@ async fn handler(
         }
 
         // Handle audio messages and video notes
-        if has_audio_content(&message) {
+        if message.voice().is_some() || message.video_note().is_some() {
             return handle_audio_message(&message, bot, dynamodb, TaskType::Transcribe).await;
         }
     } else {
