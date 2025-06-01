@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lambda_http = "0.14"
-lambda_runtime = "0.13"
+lambda_http = "0.15"
+lambda_runtime = "0.14"
 reqwest = { version = "0.12", features = [
     "multipart",
     "json",
@@ -13,15 +13,15 @@ reqwest = { version = "0.12", features = [
 ], default-features = false }
 serde = "1"
 serde_json = "1"
-tokio = { version = "1.44", features = ["full"] }
-teloxide = { version = "0.15", features = ["macros", "rustls"], default-features = false }
-mime = "0.3.17"
+tokio = { version = "1.45", features = ["full"] }
+teloxide = { version = "0.15", features = ["macros", "rustls", "cache-me"], default-features = false }
+mime = "0.3"
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "1.69"
+aws-sdk-dynamodb = "1.78"
 strum = { version = "0.27", features = ["derive"] }
 log = "0.4"
 fern = "0.7"
-tempfile = "3.19"
+tempfile = "3.20"
 
 [package.metadata.lambda.deploy]
 memory = 128      # Function's memory

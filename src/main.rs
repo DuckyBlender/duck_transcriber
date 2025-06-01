@@ -10,6 +10,7 @@ use std::env;
 use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
+use summarize::SummarizeMethod;
 use teloxide::types::Message;
 use teloxide::types::UpdateKind;
 use teloxide::types::{ChatAction, ParseMode};
@@ -44,6 +45,8 @@ enum BotCommand {
     Translate,
     #[command(description = "summarize the replied audio message")]
     Summarize,
+    #[command(description = "summarize the replied audio message like a caveman")]
+    Caveman,
 }
 
 #[tokio::main]
@@ -191,13 +194,34 @@ async fn handle_command(
                     || reply.video().is_some()
                     || reply.audio().is_some()
                 {
-                    return handle_summarization(reply, bot, dynamodb).await;
+                    return handle_summarization(reply, SummarizeMethod::Default, bot, dynamodb)
+                        .await;
                 }
             } else {
                 safe_send(
                     bot,
                     message,
                     Some("Reply to an audio message or video note to summarize it."),
+                    None,
+                )
+                .await;
+            }
+        }
+        BotCommand::Caveman => {
+            if let Some(reply) = message.reply_to_message() {
+                if reply.voice().is_some()
+                    || reply.video_note().is_some()
+                    || reply.video().is_some()
+                    || reply.audio().is_some()
+                {
+                    return handle_summarization(reply, SummarizeMethod::Caveman, bot, dynamodb)
+                        .await;
+                }
+            } else {
+                safe_send(
+                    bot,
+                    message,
+                    Some("Reply to an audio message or video note to summarize it like a caveman."),
                     None,
                 )
                 .await;
@@ -401,6 +425,7 @@ async fn handle_audio_message(
 
 async fn handle_summarization(
     message: &Message,
+    method: SummarizeMethod,
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
@@ -495,7 +520,7 @@ async fn handle_summarization(
     };
 
     // Summarize the translation
-    let summary = match summarize::summarize(&translation).await {
+    let summary = match summarize::summarize(&translation, method).await {
         Ok(summary) => summary,
         Err(e) => {
             safe_send(bot, message, Some(&format!("error: {e}")), None).await;

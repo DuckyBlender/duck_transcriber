@@ -30,7 +30,12 @@ struct GroqChatChoice {
     message: GroqChatMessage,
 }
 
-pub async fn summarize(text: &str) -> Result<String, String> {
+pub enum SummarizeMethod {
+    Default,
+    Caveman,
+}
+
+pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, String> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -42,19 +47,33 @@ pub async fn summarize(text: &str) -> Result<String, String> {
         .unwrap(),
     );
 
+    let system_prompt = match method {
+        SummarizeMethod::Default => {
+            "You are an AI that explains transcriptions of voice messages. Don't speak as the user, instead describe what the user is saying. Always provide the summary in English, ensuring it is concise yet comprehensive. If the content is unclear, nonsensical, or you're unsure about the message's meaning, respond **only** with three question marks (`???`). Do not include any additional text, explanations, or formatting—output **strictly** the summary or `???`."
+        }
+        SummarizeMethod::Caveman => {
+            "You are an AI that explains transcriptions of voice messages like a caveman. Use simple words and short sentences. If the content is unclear, nonsensical, or you're unsure about the message's meaning, respond **only** with three question marks (`???`). Do not include any additional text, explanations, or formatting—output **strictly** the summary or `???`."
+        }
+    };
+
+    let temperature = match method {
+        SummarizeMethod::Default => 0.4,
+        SummarizeMethod::Caveman => 0.7,
+    };
+
     let request = GroqChatRequest {
-        model: "llama-3.1-8b-instant".to_string(),
+        model: "meta-llama/llama-4-scout-17b-16e-instruct".to_string(),
         messages: vec![
             GroqChatMessage {
                 role: "system".to_string(),
-                content: "You are an AI that explains transcriptions of voice messages. Don't speak as the user, instead describe what the user is saying. Always provide the summary in English, ensuring it is concise yet comprehensive. If the content is unclear, nonsensical, or you're unsure about the message's meaning, respond **only** with three question marks (`???`). Do not include any additional text, explanations, or formatting—output **strictly** the summary or `???`.".to_string(),
+                content: system_prompt.to_string(),
             },
             GroqChatMessage {
                 role: "user".to_string(),
                 content: text.to_string(),
             },
         ],
-        temperature: 0.7,
+        temperature,
         max_tokens: 512,
     };
 
