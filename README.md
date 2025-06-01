@@ -14,10 +14,12 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 
 ## Supported Commands
 
-- `/start`: Initializes the bot and provides a welcome message.
-- `/help`: Provides information on how to use the bot and its features.
-- `/transcribe`: Transcribes the voice, audio, or video note in the reply message.
-- `/translate`: Translates (into English) the voice, audio, or video note in the reply message.
+- `/start`: Initializes the bot and provides a welcome message
+- `/help`: Provides information on how to use the bot and its features
+- `/transcribe`: Transcribes the voice, audio, or video note in the reply message
+- `/translate`: Translates (into English) the voice, audio, or video note in the reply message
+- `/summarize`: Summarizes the voice, audio, or video note in the reply message
+- `/caveman`: Transcribes the voice, audio, or video note in the reply message in a "caveman" style
 
 ## Technical Details
 
