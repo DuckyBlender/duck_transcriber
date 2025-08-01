@@ -207,7 +207,7 @@ async fn handle_command(
             - Bot caches: unique file id → transcription/translation\n\
             - Nothing else is stored, not even in logs\n\
             - Cache is cleared after 7 days\n\
-            - Contact @duckyblender for questions";
+            - Join @sussy_announcements for support/questions";
             safe_send(bot, message, Some(privacy_policy), None).await;
         }
     }
