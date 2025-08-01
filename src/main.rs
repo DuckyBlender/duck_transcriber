@@ -11,9 +11,9 @@ use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
 use summarize::SummarizeMethod;
-use teloxide::types::{FileId, FileUniqueId, Message};
 use teloxide::types::UpdateKind;
 use teloxide::types::{ChatAction, ParseMode};
+use teloxide::types::{FileId, FileUniqueId, Message};
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
@@ -379,9 +379,7 @@ async fn handle_audio_message(
     }
 
     // Transcribe the message
-    info!(
-        "Transcribing audio! Duration: {duration} | Mime: {mime:?}"
-    );
+    info!("Transcribing audio! Duration: {duration} | Mime: {mime:?}");
     let now = std::time::Instant::now();
     let transcription = match transcribe::transcribe(&task_type, audio_bytes, mime).await {
         Ok(transcription) => transcription,

@@ -1,6 +1,6 @@
-use std::env;
 use aws_sdk_dynamodb::{Client, Error, types::AttributeValue};
 use log::info;
+use std::env;
 use teloxide::types::FileUniqueId;
 
 use crate::transcribe::TaskType;
@@ -26,9 +26,7 @@ pub async fn get_item(
     let key = AttributeValue::S(unique_file_id.to_string());
     let task_type = task_type.to_string();
 
-    info!(
-        "Querying DynamoDB table '{table}' for unique_file_id '{unique_file_id}'"
-    );
+    info!("Querying DynamoDB table '{table}' for unique_file_id '{unique_file_id}'");
 
     let results = client
         .query()
@@ -50,16 +48,12 @@ pub async fn get_item(
 
         match transcription {
             Some(transcription) => {
-                info!(
-                    "{task_type} found for unique_file_id '{unique_file_id}'"
-                );
+                info!("{task_type} found for unique_file_id '{unique_file_id}'");
                 let transcription = transcription.as_s().unwrap().to_string();
                 Ok(ItemReturnInfo::Text(transcription))
             }
             None => {
-                info!(
-                    "No {task_type} found for unique_file_id '{unique_file_id}'"
-                );
+                info!("No {task_type} found for unique_file_id '{unique_file_id}'");
                 Ok(ItemReturnInfo::Exists)
             }
         }
@@ -80,9 +74,7 @@ pub async fn append_attribute(
     let task_type = task_type.to_string();
     let text = AttributeValue::S(text.to_string());
 
-    info!(
-        "Updating DynamoDB table '{table}' for unique_file_id '{unique_file_id}'"
-    );
+    info!("Updating DynamoDB table '{table}' for unique_file_id '{unique_file_id}'");
 
     client
         .update_item()
