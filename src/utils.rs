@@ -40,7 +40,7 @@ pub async fn safe_send(
                 .await;
             // Send the message and handle error
             if let Err(err) = bot_msg {
-                warn!("Failed to send message: {}", err);
+                warn!("Failed to send message: {err}");
             }
         }
     } else {
@@ -57,7 +57,7 @@ pub async fn safe_send(
 
         // Send the message and handle error
         if let Err(err) = bot_msg {
-            warn!("Failed to send message: {}", err);
+            warn!("Failed to send message: {err}");
         }
     }
 }

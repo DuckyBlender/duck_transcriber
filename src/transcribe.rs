@@ -78,7 +78,7 @@ pub async fn transcribe(
         .send()
         .await
         .map_err(|err| {
-            error!("Failed to send request to OpenAI: {}", err);
+            error!("Failed to send request to OpenAI: {err}");
             format!("Failed to send request to OpenAI: {err}")
         })?;
 
@@ -92,19 +92,19 @@ pub async fn transcribe(
             .map_err(|err| format!("Failed to parse OpenAI error response: {err}"));
 
         if let Err(err) = json {
-            error!("{}", err);
+            error!("{err}");
             return Err("Failed to parse OpenAI error response".to_string());
         }
         let json = json.unwrap();
 
         if json["error"]["code"] == "rate_limit_exceeded" {
-            warn!("Rate limit reached. Here is the response: {:?}", json);
+            warn!("Rate limit reached. Here is the response: {json:?}");
 
             // DONT CHANGE THIS STRING!
             return Err("Rate limit reached.".to_string());
         }
 
-        error!("Groq returned an error: {:?}", json);
+        error!("Groq returned an error: {json:?}");
         return Err(format!("Groq returned an error: {}", json["error"]["code"]));
     }
 
@@ -112,7 +112,7 @@ pub async fn transcribe(
     let res = res.json::<GroqWhisperResponse>().await;
 
     if let Err(err) = res {
-        error!("Failed to parse OpenAI response: {}", err);
+        error!("Failed to parse OpenAI response: {err}");
         return Err("Failed to parse OpenAI response".to_string());
     }
 

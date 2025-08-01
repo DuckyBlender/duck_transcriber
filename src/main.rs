@@ -11,7 +11,7 @@ use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
 use summarize::SummarizeMethod;
-use teloxide::types::Message;
+use teloxide::types::{FileId, FileUniqueId, Message};
 use teloxide::types::UpdateKind;
 use teloxide::types::{ChatAction, ParseMode};
 use teloxide::utils::command::BotCommands;
@@ -47,6 +47,8 @@ enum BotCommand {
     Summarize,
     #[command(description = "summarize the replied audio message like a caveman")]
     Caveman,
+    #[command(description = "show privacy policy")]
+    Privacy,
 }
 
 #[tokio::main]
@@ -75,7 +77,7 @@ async fn main() -> Result<(), Error> {
     let res = bot.set_my_commands(BotCommand::bot_commands()).await;
 
     if let Err(e) = res {
-        warn!("Failed to set commands: {:?}", e);
+        warn!("Failed to set commands: {e:?}");
     }
 
     // Run the Lambda function
@@ -91,7 +93,7 @@ async fn handler(
     let update = match parse_webhook(req).await {
         Ok(message) => message,
         Err(e) => {
-            error!("Failed to parse webhook: {:?}", e);
+            error!("Failed to parse webhook: {e:?}");
             return Ok(lambda_http::Response::builder()
                 .status(400)
                 .body("Failed to parse webhook".into())
@@ -199,6 +201,15 @@ async fn handle_command(
             )
             .await;
         }
+        BotCommand::Privacy => {
+            let privacy_policy = "Privacy Policy:\n\
+            - Bot is open source: https://github.com/DuckyBlender/duck_transcriber\n\
+            - Bot caches: unique file id → transcription/translation\n\
+            - Nothing else is stored, not even in logs\n\
+            - Cache is cleared after 7 days\n\
+            - Contact @duckyblender for questions";
+            safe_send(bot, message, Some(privacy_policy), None).await;
+        }
     }
 
     Ok(lambda_http::Response::builder()
@@ -209,8 +220,8 @@ async fn handle_command(
 
 #[derive(Debug)]
 struct AudioFileInfo {
-    file_id: String,
-    unique_id: String,
+    file_id: FileId,
+    unique_id: FileUniqueId,
     duration: u32,
     size: u32,
 }
@@ -272,7 +283,7 @@ async fn handle_audio_message(
         .send_chat_action(message.chat.id, ChatAction::Typing)
         .await
     {
-        warn!("Failed to send typing indicator: {:?}", e);
+        warn!("Failed to send typing indicator: {e:?}");
     }
 
     let audio_info = match AudioFileInfo::from_message(message) {
@@ -315,13 +326,13 @@ async fn handle_audio_message(
             );
         }
         Err(e) => {
-            error!("Failed to get item from DynamoDB: {:?}", e);
+            error!("Failed to get item from DynamoDB: {e:?}");
         }
     }
 
     // Check file size limit
     if audio_info.size > MAX_FILE_SIZE * 1024 * 1024 {
-        warn!("File is larger than {}MB", MAX_FILE_SIZE);
+        warn!("File is larger than {MAX_FILE_SIZE}MB");
         safe_send(
             bot,
             message,
@@ -342,7 +353,7 @@ async fn handle_audio_message(
     let (audio_bytes, mime, duration) = match download_audio(bot, &audio_info).await {
         Ok(res) => res,
         Err(e) => {
-            error!("Failed to download audio: {:?}", e);
+            error!("Failed to download audio: {e:?}");
             safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
             return Ok(lambda_http::Response::builder()
                 .status(200)
@@ -357,7 +368,7 @@ async fn handle_audio_message(
         safe_send(
             bot,
             message,
-            Some(&format!("Duration is above {} minutes", MAX_DURATION)),
+            Some(&format!("Duration is above {MAX_DURATION} minutes")),
             None,
         )
         .await;
@@ -369,8 +380,7 @@ async fn handle_audio_message(
 
     // Transcribe the message
     info!(
-        "Transcribing audio! Duration: {} | Mime: {:?}",
-        duration, mime
+        "Transcribing audio! Duration: {duration} | Mime: {mime:?}"
     );
     let now = std::time::Instant::now();
     let transcription = match transcribe::transcribe(&task_type, audio_bytes, mime).await {
@@ -382,7 +392,7 @@ async fn handle_audio_message(
                     .body("Rate limit reached".into())
                     .unwrap());
             }
-            warn!("Failed to transcribe audio: {}", e);
+            warn!("Failed to transcribe audio: {e}");
             safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
             return Ok(lambda_http::Response::builder()
                 .status(200)
@@ -403,7 +413,7 @@ async fn handle_audio_message(
     // Save the transcription to DynamoDB
     let item = dynamodb::DBItem {
         text: transcription.clone(),
-        unique_file_id: audio_info.unique_id.clone(),
+        unique_file_id: audio_info.unique_id.to_string(),
         task_type: task_type.to_string(),
     };
 
@@ -427,12 +437,12 @@ async fn handle_audio_message(
             .await
             {
                 Ok(_) => info!("Successfully updated transcription in DynamoDB"),
-                Err(e) => error!("Failed to update transcription in DynamoDB: {:?}", e),
+                Err(e) => error!("Failed to update transcription in DynamoDB: {e:?}"),
             }
         }
         _ => match dynamodb::add_item(dynamodb, item).await {
             Ok(_) => info!("Successfully saved transcription to DynamoDB"),
-            Err(e) => error!("Failed to save transcription to DynamoDB: {:?}", e),
+            Err(e) => error!("Failed to save transcription to DynamoDB: {e:?}"),
         },
     }
 
@@ -454,7 +464,7 @@ async fn handle_summarization(
         .send_chat_action(message.chat.id, ChatAction::Typing)
         .await
     {
-        warn!("Failed to send typing indicator: {:?}", e);
+        warn!("Failed to send typing indicator: {e:?}");
     }
 
     let audio_info = match AudioFileInfo::from_message(message) {
@@ -487,7 +497,7 @@ async fn handle_summarization(
             _ => {
                 // If we don't have a translation, get it first, but first check the file size
                 if audio_info.size > MAX_FILE_SIZE * 1024 * 1024 {
-                    warn!("File is larger than {}MB", MAX_FILE_SIZE);
+                    warn!("File is larger than {MAX_FILE_SIZE}MB");
                     safe_send(
                         bot,
                         message,
@@ -507,7 +517,7 @@ async fn handle_summarization(
                 let (audio_bytes, mime, _) = match res {
                     Ok(res) => res,
                     Err(e) => {
-                        error!("Failed to download audio: {:?}", e);
+                        error!("Failed to download audio: {e:?}");
                         safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
                         return Ok(lambda_http::Response::builder()
                             .status(200)
@@ -521,13 +531,13 @@ async fn handle_summarization(
                         // Cache the translation in DynamoDB
                         let item = dynamodb::DBItem {
                             text: translation.clone(),
-                            unique_file_id: audio_info.unique_id.clone(),
+                            unique_file_id: audio_info.unique_id.to_string(),
                             task_type: TaskType::Translate.to_string(),
                         };
 
                         match dynamodb::add_item(dynamodb, item).await {
                             Ok(_) => info!("Successfully cached translation in DynamoDB"),
-                            Err(e) => error!("Failed to cache translation in DynamoDB: {:?}", e),
+                            Err(e) => error!("Failed to cache translation in DynamoDB: {e:?}"),
                         }
                         translation
                     }
@@ -583,7 +593,7 @@ async fn download_audio(
     audio_info: &AudioFileInfo,
 ) -> Result<(Vec<u8>, Mime, u32), Error> {
     // Get the actual file info from Telegram to get the real file size
-    let file = bot.get_file(&audio_info.file_id).await?;
+    let file = bot.get_file(audio_info.file_id.clone()).await?;
 
     info!(
         "Checking file size: {} bytes ({}MB)",
@@ -636,7 +646,7 @@ async fn download_audio(
     if !output.status.success() {
         // Log the command error output (stderr)
         let stderr = String::from_utf8_lossy(&output.stderr);
-        error!("FFmpeg command failed with Error: {}", stderr);
+        error!("FFmpeg command failed with Error: {stderr}");
         return Err(Error::from("FFmpeg conversion failed"));
     }
 

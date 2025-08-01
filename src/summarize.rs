@@ -79,12 +79,12 @@ pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, St
 
     let client = reqwest::Client::new();
     let res = client
-        .post(format!("{}/chat/completions", BASE_URL))
+        .post(format!("{BASE_URL}/chat/completions"))
         .headers(headers)
         .json(&request)
         .send()
         .await
-        .map_err(|err| format!("Failed to send request to Groq: {}", err))?;
+        .map_err(|err| format!("Failed to send request to Groq: {err}"))?;
 
     if !res.status().is_success() {
         let json = res
@@ -100,7 +100,7 @@ pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, St
     let response = res
         .json::<GroqChatResponse>()
         .await
-        .map_err(|err| format!("Failed to parse Groq response: {}", err))?;
+        .map_err(|err| format!("Failed to parse Groq response: {err}"))?;
 
     Ok(response.choices[0].message.content.trim().to_string())
 }
