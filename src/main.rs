@@ -528,12 +528,13 @@ async fn handle_summarization(
                 match transcribe::transcribe(&TaskType::Translate, audio_bytes, mime).await {
                     Ok(Some(translation)) => {
                         // Cache the translation in DynamoDB
-            let item = dynamodb::DBItem {
-                text: translation.clone(),
-                unique_file_id: audio_info.unique_id.to_string(),
-                task_type: TaskType::Translate.to_string(),
-                expires_at: (chrono::Utc::now() + chrono::Duration::days(7)).timestamp(),
-            };
+                        let item = dynamodb::DBItem {
+                            text: translation.clone(),
+                            unique_file_id: audio_info.unique_id.to_string(),
+                            task_type: TaskType::Translate.to_string(),
+                            expires_at: (chrono::Utc::now() + chrono::Duration::days(7))
+                                .timestamp(),
+                        };
 
                         match dynamodb::add_item(dynamodb, item).await {
                             Ok(_) => info!("Successfully cached translation in DynamoDB"),

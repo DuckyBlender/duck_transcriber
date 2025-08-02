@@ -76,7 +76,11 @@ pub async fn append_attribute(
     let key = AttributeValue::S(unique_file_id.to_string());
     let task_type = task_type.to_string();
     let text = AttributeValue::S(text.to_string());
-    let expires_at = AttributeValue::N((chrono::Utc::now() + chrono::Duration::days(EXPIRATION_DAYS)).timestamp().to_string());
+    let expires_at = AttributeValue::N(
+        (chrono::Utc::now() + chrono::Duration::days(EXPIRATION_DAYS))
+            .timestamp()
+            .to_string(),
+    );
 
     info!("Updating DynamoDB table '{table}' for unique_file_id '{unique_file_id}'");
 
@@ -84,7 +88,9 @@ pub async fn append_attribute(
         .update_item()
         .table_name(table)
         .key("id", key)
-        .update_expression(format!("SET #{task_type} = :text, expires_at = :expires_at"))
+        .update_expression(format!(
+            "SET #{task_type} = :text, expires_at = :expires_at"
+        ))
         .expression_attribute_names(format!("#{task_type}"), task_type)
         .expression_attribute_values(":text", text)
         .expression_attribute_values(":expires_at", expires_at)
