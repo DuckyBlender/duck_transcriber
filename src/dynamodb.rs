@@ -5,10 +5,13 @@ use teloxide::types::FileUniqueId;
 
 use crate::transcribe::TaskType;
 
+const EXPIRATION_DAYS: i64 = 7;
+
 pub struct DBItem {
     pub text: String,
     pub unique_file_id: String, // Using String for compatibility with DynamoDB
     pub task_type: String,
+    pub expires_at: i64, // Unix timestamp for TTL
 }
 
 pub enum ItemReturnInfo {
@@ -73,6 +76,7 @@ pub async fn append_attribute(
     let key = AttributeValue::S(unique_file_id.to_string());
     let task_type = task_type.to_string();
     let text = AttributeValue::S(text.to_string());
+    let expires_at = AttributeValue::N((chrono::Utc::now() + chrono::Duration::days(EXPIRATION_DAYS)).timestamp().to_string());
 
     info!("Updating DynamoDB table '{table}' for unique_file_id '{unique_file_id}'");
 
@@ -80,9 +84,10 @@ pub async fn append_attribute(
         .update_item()
         .table_name(table)
         .key("id", key)
-        .update_expression(format!("SET #{task_type} = :text"))
+        .update_expression(format!("SET #{task_type} = :text, expires_at = :expires_at"))
         .expression_attribute_names(format!("#{task_type}"), task_type)
         .expression_attribute_values(":text", text)
+        .expression_attribute_values(":expires_at", expires_at)
         .send()
         .await?;
 
@@ -93,12 +98,14 @@ pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {
     let table = env::var("DYNAMODB_TABLE").unwrap();
     let text = AttributeValue::S(item.text);
     let file_id = AttributeValue::S(item.unique_file_id);
+    let expires_at = AttributeValue::N(item.expires_at.to_string());
 
     client
         .put_item()
         .table_name(table)
         .item(item.task_type, text)
         .item("id", file_id)
+        .item("expires_at", expires_at)
         .send()
         .await?;
 
