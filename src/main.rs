@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
 use core::str;
-use dynamodb::ItemReturnInfo;
+
 use lambda_http::{Error, run, service_fn};
 use log::LevelFilter;
 use log::{debug, error, info, warn};
@@ -10,20 +10,22 @@ use std::env;
 use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
-use summarize::SummarizeMethod;
+use teloxide::types::Message;
 use teloxide::types::UpdateKind;
 use teloxide::types::{ChatAction, ParseMode};
-use teloxide::types::{FileId, FileUniqueId, Message};
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
 use tempfile::NamedTempFile;
-use transcribe::TaskType;
+use types::{
+    AudioAction, AudioFileInfo, BotCommand, DBItem, ItemReturnInfo, SummarizeMethod, TaskType,
+};
 use utils::{parse_webhook, safe_send};
 
 mod dynamodb;
 mod summarize;
 mod transcribe;
+mod types;
 mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
@@ -31,25 +33,6 @@ const MAX_FILE_SIZE: u32 = 20; // in MB (telegram download limit)
 // If telegram raises the limit, we can increase this no problem, as we are using ffmpeg to convert to mono 16kHz. Groq filelimit is also much higher than 20MB
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
-
-#[derive(BotCommands, Clone)]
-#[command(rename_rule = "lowercase")]
-enum BotCommand {
-    #[command(description = "display this text")]
-    Help,
-    #[command(description = "welcome message")]
-    Start,
-    #[command(description = "transcribe the replied audio")]
-    Transcribe,
-    #[command(description = "transcribe & translate the replied audio file in English.", aliases = ["english", "en"])]
-    Translate,
-    #[command(description = "summarize the replied audio message")]
-    Summarize,
-    #[command(description = "summarize the replied audio message like a caveman")]
-    Caveman,
-    #[command(description = "show privacy policy")]
-    Privacy,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -102,14 +85,21 @@ async fn handler(
     };
 
     if let UpdateKind::Message(message) = update.kind {
-        // Handle commands
-        if let Some(text) = message.text() {
-            if let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username()) {
-                return handle_command(bot, &message, command, dynamodb).await;
-            }
+        // Handle commands in text
+        if let Some(text) = message.text()
+            && let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username())
+        {
+            return handle_command(bot, &message, command, dynamodb).await;
         }
 
-        // Handle audio messages and video notes
+        // Handle commands in caption (when attached to media)
+        if let Some(caption) = message.caption()
+            && let Ok(command) = BotCommand::parse(caption, bot.get_me().await.unwrap().username())
+        {
+            return handle_command(bot, &message, command, dynamodb).await;
+        }
+
+        // Handle audio messages and video notes (auto-transcribe)
         if message.voice().is_some() || message.video_note().is_some() {
             return handle_audio_message(&message, bot, dynamodb, TaskType::Transcribe).await;
         }
@@ -122,6 +112,52 @@ async fn handler(
         .status(200)
         .body(String::new())
         .unwrap())
+}
+
+// Helper to create success response
+fn ok_response() -> Result<lambda_http::Response<String>, lambda_http::Error> {
+    Ok(lambda_http::Response::builder()
+        .status(200)
+        .body(String::new())
+        .unwrap())
+}
+
+// Generic handler for audio processing commands
+async fn handle_audio_command(
+    bot: &Bot,
+    message: &Message,
+    action: AudioAction,
+    help_text: &str,
+    dynamodb: &aws_sdk_dynamodb::Client,
+) -> Result<lambda_http::Response<String>, lambda_http::Error> {
+    // Find target message with audio content
+    let target_message = if has_audio_content(message) {
+        // Caption command - process current message
+        message
+    } else if let Some(reply) = message.reply_to_message() {
+        if has_audio_content(reply) {
+            // Reply command - process replied message
+            reply
+        } else {
+            // No audio content found
+            safe_send(bot, message, Some(help_text), None).await;
+            return ok_response();
+        }
+    } else {
+        // No audio content found
+        safe_send(bot, message, Some(help_text), None).await;
+        return ok_response();
+    };
+
+    // Process the audio content
+    match action {
+        AudioAction::Transcribe(task_type) => {
+            handle_audio_message(target_message, bot, dynamodb, task_type).await
+        }
+        AudioAction::Summarize(method) => {
+            handle_summarization(target_message, method, bot, dynamodb).await
+        }
+    }
 }
 
 async fn handle_command(
@@ -143,61 +179,43 @@ async fn handle_command(
                 None
             ).await;
         }
-        BotCommand::Translate => {
-            if let Some(reply) = message.reply_to_message() {
-                if has_audio_content(reply) {
-                    return handle_audio_message(reply, bot, dynamodb, TaskType::Translate).await;
-                }
-            }
-            safe_send(
+        BotCommand::Transcribe => {
+            return handle_audio_command(
                 bot,
                 message,
-                Some("Reply to an audio message or video note to translate it."),
-                None,
+                AudioAction::Transcribe(TaskType::Transcribe),
+                "Reply to an audio message or video note to transcribe it.",
+                dynamodb,
             )
             .await;
         }
-        BotCommand::Transcribe => {
-            if let Some(reply) = message.reply_to_message() {
-                if has_audio_content(reply) {
-                    return handle_audio_message(reply, bot, dynamodb, TaskType::Transcribe).await;
-                }
-            }
-            safe_send(
+        BotCommand::Translate => {
+            return handle_audio_command(
                 bot,
                 message,
-                Some("Reply to an audio message or video note to transcribe it."),
-                None,
+                AudioAction::Transcribe(TaskType::Translate),
+                "Reply to an audio message or video note to translate it.",
+                dynamodb,
             )
             .await;
         }
         BotCommand::Summarize => {
-            if let Some(reply) = message.reply_to_message() {
-                if has_audio_content(reply) {
-                    return handle_summarization(reply, SummarizeMethod::Default, bot, dynamodb)
-                        .await;
-                }
-            }
-            safe_send(
+            return handle_audio_command(
                 bot,
                 message,
-                Some("Reply to an audio message or video note to summarize it."),
-                None,
+                AudioAction::Summarize(SummarizeMethod::Default),
+                "Reply to an audio message or video note to summarize it.",
+                dynamodb,
             )
             .await;
         }
         BotCommand::Caveman => {
-            if let Some(reply) = message.reply_to_message() {
-                if has_audio_content(reply) {
-                    return handle_summarization(reply, SummarizeMethod::Caveman, bot, dynamodb)
-                        .await;
-                }
-            }
-            safe_send(
+            return handle_audio_command(
                 bot,
                 message,
-                Some("Reply to an audio message or video note to summarize it like a caveman."),
-                None,
+                AudioAction::Summarize(SummarizeMethod::Caveman),
+                "Reply to an audio message or video note to summarize it like a caveman.",
+                dynamodb,
             )
             .await;
         }
@@ -212,56 +230,7 @@ async fn handle_command(
         }
     }
 
-    Ok(lambda_http::Response::builder()
-        .status(200)
-        .body(String::new())
-        .unwrap())
-}
-
-#[derive(Debug)]
-struct AudioFileInfo {
-    file_id: FileId,
-    unique_id: FileUniqueId,
-    duration: u32,
-    size: u32,
-}
-
-impl AudioFileInfo {
-    fn from_message(message: &Message) -> Option<Self> {
-        if let Some(voice) = message.voice() {
-            return Some(Self {
-                file_id: voice.file.id.clone(),
-                unique_id: voice.file.unique_id.clone(),
-                duration: voice.duration.seconds(),
-                size: voice.file.size,
-            });
-        }
-        if let Some(video_note) = message.video_note() {
-            return Some(Self {
-                file_id: video_note.file.id.clone(),
-                unique_id: video_note.file.unique_id.clone(),
-                duration: video_note.duration.seconds(),
-                size: video_note.file.size,
-            });
-        }
-        if let Some(video) = message.video() {
-            return Some(Self {
-                file_id: video.file.id.clone(),
-                unique_id: video.file.unique_id.clone(),
-                duration: video.duration.seconds(),
-                size: video.file.size,
-            });
-        }
-        if let Some(audio) = message.audio() {
-            return Some(Self {
-                file_id: audio.file.id.clone(),
-                unique_id: audio.file.unique_id.clone(),
-                duration: audio.duration.seconds(),
-                size: audio.file.size,
-            });
-        }
-        None
-    }
+    ok_response()
 }
 
 fn has_audio_content(message: &Message) -> bool {
@@ -271,12 +240,11 @@ fn has_audio_content(message: &Message) -> bool {
         || message.audio().is_some()
 }
 
-async fn handle_audio_message(
+// Common setup for audio processing
+async fn setup_audio_processing(
     message: &Message,
     bot: &Bot,
-    dynamodb: &aws_sdk_dynamodb::Client,
-    task_type: TaskType,
-) -> Result<lambda_http::Response<String>, lambda_http::Error> {
+) -> Result<AudioFileInfo, lambda_http::Response<String>> {
     // Send "typing" indicator
     debug!("Sending typing indicator");
     if let Err(e) = bot
@@ -286,18 +254,42 @@ async fn handle_audio_message(
         warn!("Failed to send typing indicator: {e:?}");
     }
 
-    let audio_info = match AudioFileInfo::from_message(message) {
+    match AudioFileInfo::from_message(message) {
         Some(info) => {
             info!("Received audio message with duration: {}s", info.duration);
-            info
+            Ok(info)
         }
         None => {
             error!("No audio content found in message");
-            return Ok(lambda_http::Response::builder()
+            Err(lambda_http::Response::builder()
                 .status(200)
                 .body(String::new())
-                .unwrap());
+                .unwrap())
         }
+    }
+}
+
+// Check file size limits
+fn validate_file_size(audio_info: &AudioFileInfo) -> Result<(), String> {
+    if audio_info.size > MAX_FILE_SIZE * 1024 * 1024 {
+        warn!("File is larger than {MAX_FILE_SIZE}MB");
+        return Err(format!(
+            "File can't be larger than {MAX_FILE_SIZE}MB (is {}MB)",
+            audio_info.size / 1024 / 1024
+        ));
+    }
+    Ok(())
+}
+
+async fn handle_audio_message(
+    message: &Message,
+    bot: &Bot,
+    dynamodb: &aws_sdk_dynamodb::Client,
+    task_type: TaskType,
+) -> Result<lambda_http::Response<String>, lambda_http::Error> {
+    let audio_info = match setup_audio_processing(message, bot).await {
+        Ok(info) => info,
+        Err(response) => return Ok(response),
     };
 
     // Get the transcription from DynamoDB
@@ -331,22 +323,9 @@ async fn handle_audio_message(
     }
 
     // Check file size limit
-    if audio_info.size > MAX_FILE_SIZE * 1024 * 1024 {
-        warn!("File is larger than {MAX_FILE_SIZE}MB");
-        safe_send(
-            bot,
-            message,
-            Some(&format!(
-                "File can't be larger than {MAX_FILE_SIZE}MB (is {}MB)",
-                audio_info.size / 1024 / 1024
-            )),
-            None,
-        )
-        .await;
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body(String::new())
-            .unwrap());
+    if let Err(error_msg) = validate_file_size(&audio_info) {
+        safe_send(bot, message, Some(&error_msg), None).await;
+        return ok_response();
     }
 
     // Download the audio file
@@ -355,10 +334,7 @@ async fn handle_audio_message(
         Err(e) => {
             error!("Failed to download audio: {e:?}");
             safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
-            return Ok(lambda_http::Response::builder()
-                .status(200)
-                .body(String::new())
-                .unwrap());
+            return ok_response();
         }
     };
 
@@ -372,10 +348,7 @@ async fn handle_audio_message(
             None,
         )
         .await;
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body(String::new())
-            .unwrap());
+        return ok_response();
     }
 
     // Transcribe the message
@@ -392,10 +365,7 @@ async fn handle_audio_message(
             }
             warn!("Failed to transcribe audio: {e}");
             safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
-            return Ok(lambda_http::Response::builder()
-                .status(200)
-                .body(String::new())
-                .unwrap());
+            return ok_response();
         }
     };
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());
@@ -409,7 +379,7 @@ async fn handle_audio_message(
     safe_send(bot, message, Some(&transcription), None).await;
 
     // Save the transcription to DynamoDB
-    let item = dynamodb::DBItem {
+    let item = DBItem {
         text: transcription.clone(),
         unique_file_id: audio_info.unique_id.to_string(),
         task_type: task_type.to_string(),
@@ -445,10 +415,7 @@ async fn handle_audio_message(
         },
     }
 
-    Ok(lambda_http::Response::builder()
-        .status(200)
-        .body(String::new())
-        .unwrap())
+    ok_response()
 }
 
 async fn handle_summarization(
@@ -457,30 +424,15 @@ async fn handle_summarization(
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
-    // Send "typing" indicator
-    debug!("Sending typing indicator");
-    if let Err(e) = bot
-        .send_chat_action(message.chat.id, ChatAction::Typing)
-        .await
-    {
-        warn!("Failed to send typing indicator: {e:?}");
-    }
-
-    let audio_info = match AudioFileInfo::from_message(message) {
-        Some(info) => {
+    let audio_info = match setup_audio_processing(message, bot).await {
+        Ok(info) => {
             info!(
                 "Received audio message for summarization with duration: {}s",
                 info.duration
             );
             info
         }
-        None => {
-            error!("No audio content found in message");
-            return Ok(lambda_http::Response::builder()
-                .status(200)
-                .body(String::new())
-                .unwrap());
-        }
+        Err(response) => return Ok(response),
     };
 
     // Try to get the translation from DynamoDB first
@@ -495,22 +447,9 @@ async fn handle_summarization(
             }
             _ => {
                 // If we don't have a translation, get it first, but first check the file size
-                if audio_info.size > MAX_FILE_SIZE * 1024 * 1024 {
-                    warn!("File is larger than {MAX_FILE_SIZE}MB");
-                    safe_send(
-                        bot,
-                        message,
-                        Some(&format!(
-                            "File can't be larger than {MAX_FILE_SIZE}MB (is {}MB)",
-                            audio_info.size / 1024 / 1024
-                        )),
-                        None,
-                    )
-                    .await;
-                    return Ok(lambda_http::Response::builder()
-                        .status(200)
-                        .body(String::new())
-                        .unwrap());
+                if let Err(error_msg) = validate_file_size(&audio_info) {
+                    safe_send(bot, message, Some(&error_msg), None).await;
+                    return ok_response();
                 }
                 let res = download_audio(bot, &audio_info).await;
                 let (audio_bytes, mime, _) = match res {
@@ -518,17 +457,14 @@ async fn handle_summarization(
                     Err(e) => {
                         error!("Failed to download audio: {e:?}");
                         safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
-                        return Ok(lambda_http::Response::builder()
-                            .status(200)
-                            .body(String::new())
-                            .unwrap());
+                        return ok_response();
                     }
                 };
 
                 match transcribe::transcribe(&TaskType::Translate, audio_bytes, mime).await {
                     Ok(Some(translation)) => {
                         // Cache the translation in DynamoDB
-                        let item = dynamodb::DBItem {
+                        let item = DBItem {
                             text: translation.clone(),
                             unique_file_id: audio_info.unique_id.to_string(),
                             task_type: TaskType::Translate.to_string(),
@@ -544,17 +480,11 @@ async fn handle_summarization(
                     }
                     Ok(None) => {
                         safe_send(bot, message, Some("No text found in audio"), None).await;
-                        return Ok(lambda_http::Response::builder()
-                            .status(200)
-                            .body(String::new())
-                            .unwrap());
+                        return ok_response();
                     }
                     Err(e) => {
                         safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
-                        return Ok(lambda_http::Response::builder()
-                            .status(200)
-                            .body(String::new())
-                            .unwrap());
+                        return ok_response();
                     }
                 }
             }
@@ -565,10 +495,7 @@ async fn handle_summarization(
         Ok(summary) => summary,
         Err(e) => {
             safe_send(bot, message, Some(&format!("Error: {e}")), None).await;
-            return Ok(lambda_http::Response::builder()
-                .status(200)
-                .body(String::new())
-                .unwrap());
+            return ok_response();
         }
     };
 
@@ -583,10 +510,7 @@ async fn handle_summarization(
     )
     .await;
 
-    Ok(lambda_http::Response::builder()
-        .status(200)
-        .body(String::new())
-        .unwrap())
+    ok_response()
 }
 
 async fn download_audio(

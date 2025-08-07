@@ -1,24 +1,10 @@
+use crate::types::{DBItem, ItemReturnInfo, TaskType};
 use aws_sdk_dynamodb::{Client, Error, types::AttributeValue};
 use log::info;
 use std::env;
 use teloxide::types::FileUniqueId;
 
-use crate::transcribe::TaskType;
-
 const EXPIRATION_DAYS: i64 = 7;
-
-pub struct DBItem {
-    pub text: String,
-    pub unique_file_id: String, // Using String for compatibility with DynamoDB
-    pub task_type: String,
-    pub expires_at: i64, // Unix timestamp for TTL
-}
-
-pub enum ItemReturnInfo {
-    Text(String),
-    Exists, // Item already exists, but for other task type.
-    None,
-}
 
 pub async fn get_item(
     client: &Client,

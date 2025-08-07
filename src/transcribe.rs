@@ -1,41 +1,10 @@
 use crate::BASE_URL;
+use crate::types::{GroqWhisperResponse, TaskType};
 use log::{error, warn};
 use mime::Mime;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
-use serde::{Deserialize, Serialize};
 use std::env;
-
-#[derive(strum::Display)]
-pub enum TaskType {
-    #[strum(to_string = "transcribe")]
-    Transcribe,
-    #[strum(to_string = "translate")]
-    Translate,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct GroqWhisperResponse {
-    task: String,
-    language: String,
-    duration: f64,
-    text: String,
-    segments: Vec<GroqWhisperSegment>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct GroqWhisperSegment {
-    id: u32,
-    seek: u32,
-    start: f64,
-    end: f64,
-    text: String,
-    tokens: Vec<u32>,
-    temperature: f64,
-    avg_logprob: f64,
-    compression_ratio: f64,
-    no_speech_prob: f64,
-}
 
 pub async fn transcribe(
     task_type: &TaskType,

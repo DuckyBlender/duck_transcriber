@@ -1,39 +1,8 @@
-use std::env;
-
+use crate::BASE_URL;
+use crate::types::{GroqChatMessage, GroqChatRequest, GroqChatResponse, SummarizeMethod};
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
-use serde::{Deserialize, Serialize};
-
-use crate::BASE_URL;
-
-#[derive(Debug, Serialize)]
-struct GroqChatRequest {
-    model: String,
-    messages: Vec<GroqChatMessage>,
-    temperature: f32,
-    max_tokens: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GroqChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqChatResponse {
-    choices: Vec<GroqChatChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqChatChoice {
-    message: GroqChatMessage,
-}
-
-pub enum SummarizeMethod {
-    Default,
-    Caveman,
-}
+use std::env;
 
 pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, String> {
     let mut headers = HeaderMap::new();
