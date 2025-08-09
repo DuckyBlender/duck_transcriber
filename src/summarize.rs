@@ -31,7 +31,7 @@ pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, St
     };
 
     let request = GroqChatRequest {
-        model: "meta-llama/llama-4-scout-17b-16e-instruct".to_string(),
+        model: "moonshotai/kimi-k2-instruct".to_string(),
         messages: vec![
             GroqChatMessage {
                 role: "system".to_string(),
