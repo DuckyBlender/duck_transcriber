@@ -454,7 +454,8 @@ async fn handle_summarization(
     };
 
     // Try to get the translation from DynamoDB first
-    let translation = match dynamodb::get_item(dynamodb, &audio_info.unique_id, &TaskType::Translate).await {
+    let translation =
+        match dynamodb::get_item(dynamodb, &audio_info.unique_id, &TaskType::Translate).await {
             Ok(ItemReturnInfo::Text(translation)) => {
                 info!(
                     "Translation found in DynamoDB for unique_file_id: {}",
@@ -473,7 +474,8 @@ async fn handle_summarization(
                     Ok(res) => res,
                     Err(e) => {
                         error!("Failed to download audio: {e:?}");
-                        safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                        safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None)
+                            .await;
                         return ok_response();
                     }
                 };
@@ -496,11 +498,19 @@ async fn handle_summarization(
                         translation
                     }
                     Ok(None) => {
-                        safe_send(bot, reply_context, Some("No text found in audio"), None, None).await;
+                        safe_send(
+                            bot,
+                            reply_context,
+                            Some("No text found in audio"),
+                            None,
+                            None,
+                        )
+                        .await;
                         return ok_response();
                     }
                     Err(e) => {
-                        safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                        safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None)
+                            .await;
                         return ok_response();
                     }
                 }

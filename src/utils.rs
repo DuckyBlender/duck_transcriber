@@ -41,10 +41,7 @@ pub async fn safe_send(
             _ => "content.txt",
         };
 
-        let caption = format!(
-            "Your {} is too long. Here is the file:",
-            label
-        );
+        let caption = format!("Your {} is too long. Here is the file:", label);
 
         let file = InputFile::memory(content.into_bytes()).file_name(filename.to_string());
 
