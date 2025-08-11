@@ -21,6 +21,17 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
 - `/caveman`: Transcribes the voice, audio, or video note in the reply message in a "caveman" style
 
+### Developer Commands
+
+- `/check`: Report Telegram webhook queue status (pending updates, last error)
+- `/reset`: Reset webhook with `drop_pending_updates=true`
+
+These commands are only available to the developer whose Telegram user ID is set via the `DEV_TELEGRAM_ID` environment variable. If `DEV_TELEGRAM_ID` is not set, the bot ignores these commands.
+
+Why this exists: when the Lambda handler returns a non-200 response, Telegram will retry the same webhook delivery. This can create a resend loop and queue backlog. The developer commands allow monitoring the queue and forcefully resetting the webhook with `drop_pending_updates=true` to clear the backlog.
+
+Maybe in the future, I'll make a fork of Teloxide that would be specially made to be run on serverless functions.
+
 ## Technical Details
 
 - The bot is built using the `teloxide` crate for interacting with the Telegram API.
@@ -34,6 +45,8 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 - `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
 - `GROQ_API_KEY`: the API key for the Groq Whisper API.
 - `DYNAMODB_TABLE`: the name of the DynamoDB table where transcriptions are stored.
+- `DEV_TELEGRAM_ID`: Telegram user ID allowed to run developer commands (`/check`, `/reset`). If unset, the commands are ignored.
+- `LAMBDA_URL`: The URL of the Lambda function. This is used to set the webhook in the Telegram API when resetting it.
 
 ## Deployment
 

@@ -11,8 +11,8 @@ use std::io::Write;
 use std::process::Command;
 use std::str::FromStr;
 use teloxide::types::Message;
+use teloxide::types::ParseMode;
 use teloxide::types::UpdateKind;
-use teloxide::types::{ChatAction, ParseMode};
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
@@ -20,8 +20,9 @@ use tempfile::NamedTempFile;
 use types::{
     AudioAction, AudioFileInfo, BotCommand, DBItem, ItemReturnInfo, SummarizeMethod, TaskType,
 };
-use utils::{parse_webhook, safe_send};
+use utils::{parse_webhook, safe_send, start_typing_indicator};
 
+mod dev_commands;
 mod dynamodb;
 mod summarize;
 mod transcribe;
@@ -85,6 +86,10 @@ async fn handler(
     };
 
     if let UpdateKind::Message(message) = update.kind {
+        // Handle dev-only stealth commands first. If handled, return 200 with no further processing.
+        if dev_commands::try_handle_dev_command(bot, &message).await {
+            return ok_response();
+        }
         // Handle commands in text
         if let Some(text) = message.text()
             && let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username())
@@ -250,17 +255,7 @@ fn has_audio_content(message: &Message) -> bool {
 // Common setup for audio processing
 async fn setup_audio_processing(
     message: &Message,
-    bot: &Bot,
 ) -> Result<AudioFileInfo, lambda_http::Response<String>> {
-    // Send "typing" indicator
-    debug!("Sending typing indicator");
-    if let Err(e) = bot
-        .send_chat_action(message.chat.id, ChatAction::Typing)
-        .await
-    {
-        warn!("Failed to send typing indicator: {e:?}");
-    }
-
     match AudioFileInfo::from_message(message) {
         Some(info) => {
             info!("Received audio message with duration: {}s", info.duration);
@@ -295,7 +290,7 @@ async fn handle_audio_message(
     dynamodb: &aws_sdk_dynamodb::Client,
     task_type: TaskType,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
-    let audio_info = match setup_audio_processing(audio_source_message, bot).await {
+    let audio_info = match setup_audio_processing(audio_source_message).await {
         Ok(info) => info,
         Err(response) => return Ok(response),
     };
@@ -339,6 +334,9 @@ async fn handle_audio_message(
         safe_send(bot, reply_context, Some(&error_msg), None, None).await;
         return ok_response();
     }
+
+    // Start typing indicator now that we know we will transcribe (no DynamoDB hit)
+    let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
     // Download the audio file
     let (audio_bytes, mime, duration) = match download_audio(bot, &audio_info).await {
@@ -387,6 +385,9 @@ async fn handle_audio_message(
         .unwrap_or("<no text>".to_string())
         .trim()
         .to_string();
+
+    // Stop typing indicator before sending the message
+    drop(typing_guard);
 
     // Send the transcription/translation to the user
     let label = match task_type {
@@ -442,7 +443,7 @@ async fn handle_summarization(
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
-    let audio_info = match setup_audio_processing(audio_source_message, bot).await {
+    let audio_info = match setup_audio_processing(audio_source_message).await {
         Ok(info) => {
             info!(
                 "Received audio message for summarization with duration: {}s",
@@ -528,6 +529,7 @@ async fn handle_summarization(
 
     // Format summary in italics and escape markdown
     let formatted_summary = format!("_{}_", escape(&summary));
+
     // Send the summary to the user
     safe_send(
         bot,

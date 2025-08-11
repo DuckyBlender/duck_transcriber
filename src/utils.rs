@@ -5,8 +5,9 @@ use teloxide::{
     Bot,
     payloads::{SendDocumentSetters, SendMessageSetters},
     prelude::Requester,
-    types::{InputFile, Message, ParseMode, ReplyParameters, Update},
+    types::{ChatAction, ChatId, InputFile, Message, ParseMode, ReplyParameters, Update},
 };
+use tokio::time::{Duration, sleep};
 
 pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
     let body = input.body();
@@ -72,4 +73,35 @@ pub async fn safe_send(
             warn!("Failed to send message: {err}");
         }
     }
+}
+
+/// Starts a background task that sends Telegram "typing" action every 5 seconds
+/// to indicate the bot is processing. Returns a guard that stops the heartbeat
+/// when dropped.
+pub struct TypingIndicatorGuard {
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for TypingIndicatorGuard {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+pub fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> TypingIndicatorGuard {
+    let task = tokio::spawn(async move {
+        // Send immediately, then every 5 seconds
+        if let Err(err) = bot.send_chat_action(chat_id, ChatAction::Typing).await {
+            warn!("Failed to send typing indicator: {err}");
+        }
+
+        loop {
+            sleep(Duration::from_secs(5)).await;
+            if let Err(err) = bot.send_chat_action(chat_id, ChatAction::Typing).await {
+                warn!("Failed to send typing indicator: {err}");
+            }
+        }
+    });
+
+    TypingIndicatorGuard { task }
 }
