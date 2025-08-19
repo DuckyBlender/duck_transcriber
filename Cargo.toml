@@ -17,15 +17,14 @@ serde_json = "1"
 tokio = { version = "1.47", features = ["full"] }
 teloxide = { version = "0.17", features = ["macros", "rustls", "cache-me"], default-features = false }
 mime = "0.3"
+mime_guess = "2.0"
 aws-config = { version = "1.8", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1.87"
 strum = { version = "0.27", features = ["derive"] }
 log = "0.4"
 fern = "0.7"
-tempfile = "3.20"
 
 [package.metadata.lambda.deploy]
-memory = 128      # Function's memory
+memory = 256      # Function's memory (increased for larger direct uploads)
 timeout = 60      # Function's execution timeout
 env_file = ".env" # File to load environment variables from
-layers = [ "arn:aws:lambda:eu-central-1:534406734576:layer:ffmpeg-rust:3" ] # FFmpeg layer, create your own, more info in README

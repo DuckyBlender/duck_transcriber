@@ -1,4 +1,6 @@
+use mime::Mime;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use teloxide::types::{FileId, FileUniqueId, Message};
 use teloxide::utils::command::BotCommands;
 
@@ -32,6 +34,8 @@ pub struct AudioFileInfo {
     pub unique_id: FileUniqueId,
     pub duration: u32,
     pub size: u32,
+    pub kind: AudioSourceKind,
+    pub mime: Option<Mime>,
 }
 
 impl AudioFileInfo {
@@ -42,6 +46,8 @@ impl AudioFileInfo {
                 unique_id: voice.file.unique_id.clone(),
                 duration: voice.duration.seconds(),
                 size: voice.file.size,
+                kind: AudioSourceKind::Voice,
+                mime: voice.mime_type.clone(),
             });
         }
         if let Some(video_note) = message.video_note() {
@@ -50,6 +56,8 @@ impl AudioFileInfo {
                 unique_id: video_note.file.unique_id.clone(),
                 duration: video_note.duration.seconds(),
                 size: video_note.file.size,
+                kind: AudioSourceKind::VideoNote,
+                mime: Some(Mime::from_str("video/mp4").unwrap()),
             });
         }
         if let Some(video) = message.video() {
@@ -58,6 +66,8 @@ impl AudioFileInfo {
                 unique_id: video.file.unique_id.clone(),
                 duration: video.duration.seconds(),
                 size: video.file.size,
+                kind: AudioSourceKind::Video,
+                mime: video.mime_type.clone(),
             });
         }
         if let Some(audio) = message.audio() {
@@ -66,10 +76,20 @@ impl AudioFileInfo {
                 unique_id: audio.file.unique_id.clone(),
                 duration: audio.duration.seconds(),
                 size: audio.file.size,
+                kind: AudioSourceKind::Audio,
+                mime: audio.mime_type.clone(),
             });
         }
         None
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AudioSourceKind {
+    Voice,
+    VideoNote,
+    Video,
+    Audio,
 }
 
 #[derive(strum::Display)]

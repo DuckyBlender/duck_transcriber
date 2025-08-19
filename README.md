@@ -9,7 +9,7 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 1. The bot receives a voice, audio, or video note message from a user.
 2. It downloads the file from Telegram and checks its duration. If the duration is above a specified limit, it sends a warning message to the user and exits.
 3. The bot checks if the transcription already exists in AWS DynamoDB. If it does, the saved transcription is sent back to the user.
-4. If no transcription is found, the bot transcribes the audio using the Groq Whisper API.
+4. If no transcription is found, the bot uploads the original media to the Groq Whisper API for transcription.
 5. The transcription is sent back to the user as a text message and stored in DynamoDB for future reference.
 
 ## Supported Commands
@@ -23,20 +23,13 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 
 ### Developer Commands
 
-- `/check`: Report Telegram webhook queue status (pending updates, last error)
-- `/reset`: Reset webhook with `drop_pending_updates=true`
-
-These commands are only available to the developer whose Telegram user ID is set via the `DEV_TELEGRAM_ID` environment variable. If `DEV_TELEGRAM_ID` is not set, the bot ignores these commands.
-
-Why this exists: when the Lambda handler returns a non-200 response, Telegram will retry the same webhook delivery. This can create a resend loop and queue backlog. The developer commands allow monitoring the queue and forcefully resetting the webhook with `drop_pending_updates=true` to clear the backlog.
-
-Maybe in the future, I'll make a fork of Teloxide that would be specially made to be run on serverless functions.
+Developer commands have been removed.
 
 ## Technical Details
 
 - The bot is built using the `teloxide` crate for interacting with the Telegram API.
 - The transcription is done using the `reqwest` crate to send a request to the Groq Whisper API.
-- The file is first converted to a 16 kHz mono FLAC file using FFmpeg before being sent to the Groq Whisper API.
+- The original file from Telegram is uploaded directly to the Groq Whisper API. FFmpeg has been removed due to memory constraints in the serverless environment, so no conversion step is performed.
 - The bot uses AWS DynamoDB to store and retrieve transcriptions, ensuring that repeated requests for the same audio do not require retranscription.
 - The bot is deployed as a serverless function using AWS Lambda.
 
@@ -45,8 +38,7 @@ Maybe in the future, I'll make a fork of Teloxide that would be specially made t
 - `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
 - `GROQ_API_KEY`: the API key for the Groq Whisper API.
 - `DYNAMODB_TABLE`: the name of the DynamoDB table where transcriptions are stored.
-- `DEV_TELEGRAM_ID`: Telegram user ID allowed to run developer commands (`/check`, `/reset`). If unset, the commands are ignored.
-- `LAMBDA_URL`: The URL of the Lambda function. This is used to set the webhook in the Telegram API when resetting it.
+  
 
 ## Deployment
 
@@ -67,43 +59,9 @@ To deploy:
 cargo lambda deploy
 ```
 
-### Create FFmpeg Lambda Layer
+### FFmpeg
 
-1. **Download FFmpeg Static Build**:
-   Download the ARM64 static build of FFmpeg for Amazon Linux 2023:
-   ```bash
-   wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
-   tar -xf ffmpeg-release-arm64-static.tar.xz
-   mv ffmpeg-*-arm64-static/ffmpeg ./ffmpeg
-   chmod +x ffmpeg
-   ```
-
-2. **Create the Layer Directory**:
-   Create a directory structure for the Lambda layer:
-   ```bash
-   mkdir -p ffmpeg-layer/bin
-   mv ffmpeg ffmpeg-layer/bin/
-   ```
-
-3. **Zip the Layer**:
-   Compress the `ffmpeg-layer` directory:
-   ```bash
-   zip -r ffmpeg-layer.zip ffmpeg-layer
-   ```
-
-4. **Publish the Layer**:
-   Publish the layer to AWS Lambda using the AWS CLI:
-   ```bash
-   aws lambda publish-layer-version \
-     --layer-name ffmpeg-arm64 \
-     --description "FFmpeg static binary for ARM64 on Amazon Linux 2023" \
-     --zip-file fileb://ffmpeg-layer.zip \
-     --compatible-runtimes provided.al2023 \
-     --compatible-architectures arm64
-   ```
-
-5. **Attach the Layer to Your Lambda Function**:
-   Update the Cargo.toml file to include the ARN of the FFmpeg Lambda layer
+FFmpeg has been removed due to memory constraints in the serverless environment and is no longer required.
 
 ### AWS Lambda Permissions
 

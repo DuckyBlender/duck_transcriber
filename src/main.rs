@@ -7,8 +7,6 @@ use log::LevelFilter;
 use log::{debug, error, info, warn};
 use mime::Mime;
 use std::env;
-use std::io::Write;
-use std::process::Command;
 use std::str::FromStr;
 use teloxide::types::Message;
 use teloxide::types::ParseMode;
@@ -16,13 +14,11 @@ use teloxide::types::UpdateKind;
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
-use tempfile::NamedTempFile;
 use types::{
     AudioAction, AudioFileInfo, BotCommand, DBItem, ItemReturnInfo, SummarizeMethod, TaskType,
 };
 use utils::{parse_webhook, safe_send, start_typing_indicator};
 
-mod dev_commands;
 mod dynamodb;
 mod summarize;
 mod transcribe;
@@ -31,7 +27,6 @@ mod utils;
 
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 20; // in MB (telegram download limit)
-// If telegram raises the limit, we can increase this no problem, as we are using ffmpeg to convert to mono 16kHz. Groq filelimit is also much higher than 20MB
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 
@@ -86,10 +81,6 @@ async fn handler(
     };
 
     if let UpdateKind::Message(message) = update.kind {
-        // Handle dev-only stealth commands first. If handled, return 200 with no further processing.
-        if dev_commands::try_handle_dev_command(bot, &message).await {
-            return ok_response();
-        }
         // Handle commands in text
         if let Some(text) = message.text()
             && let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username())
@@ -335,6 +326,20 @@ async fn handle_audio_message(
         return ok_response();
     }
 
+    // Check duration limit early (before any download)
+    if audio_info.duration > MAX_DURATION * 60 {
+        warn!("The audio message is above {MAX_DURATION} minutes!");
+        safe_send(
+            bot,
+            reply_context,
+            Some(&format!("Duration is above {MAX_DURATION} minutes")),
+            None,
+            None,
+        )
+        .await;
+        return ok_response();
+    }
+
     // Start typing indicator now that we know we will transcribe (no DynamoDB hit)
     let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
@@ -347,20 +352,6 @@ async fn handle_audio_message(
             return ok_response();
         }
     };
-
-    // If the duration is above MAX_DURATION
-    if duration > MAX_DURATION * 60 {
-        warn!("The audio message is above {MAX_DURATION} minutes!");
-        safe_send(
-            bot,
-            reply_context,
-            Some(&format!("Duration is above {MAX_DURATION} minutes")),
-            None,
-            None,
-        )
-        .await;
-        return ok_response();
-    }
 
     // Transcribe the message
     info!("Transcribing audio! Duration: {duration} | Mime: {mime:?}");
@@ -470,6 +461,20 @@ async fn handle_summarization(
                     safe_send(bot, reply_context, Some(&error_msg), None, None).await;
                     return ok_response();
                 }
+
+                // Enforce duration limit here as well
+                if audio_info.duration > MAX_DURATION * 60 {
+                    warn!("The audio message is above {MAX_DURATION} minutes!");
+                    safe_send(
+                        bot,
+                        reply_context,
+                        Some(&format!("Duration is above {MAX_DURATION} minutes")),
+                        None,
+                        None,
+                    )
+                    .await;
+                    return ok_response();
+                }
                 let res = download_audio(bot, &audio_info).await;
                 let (audio_bytes, mime, _) = match res {
                     Ok(res) => res,
@@ -543,11 +548,11 @@ async fn handle_summarization(
     ok_response()
 }
 
-async fn download_audio(
+pub async fn download_audio(
     bot: &Bot,
     audio_info: &AudioFileInfo,
 ) -> Result<(Vec<u8>, Mime, u32), Error> {
-    // Get the actual file info from Telegram to get the real file size
+    // Get the file metadata from Telegram
     let file = bot.get_file(audio_info.file_id.clone()).await?;
 
     info!(
@@ -556,59 +561,31 @@ async fn download_audio(
         file.size / 1024 / 1024
     );
 
-    // Check file size limit - use the actual file size from Telegram API
     if file.size > MAX_FILE_SIZE * 1024 * 1024 {
-        warn!(
-            "File is larger than {}MB, but during previous check it was smaller: file {}MB vs audio {}MB",
-            MAX_FILE_SIZE,
-            file.size / 1024 / 1024,
-            audio_info.size / 1024 / 1024
-        );
         return Err(Error::from(format!(
             "File can't be larger than {MAX_FILE_SIZE}MB (is {}MB)",
             file.size / 1024 / 1024
         )));
     }
 
-    // Download the file
+    // Download file into memory
     let mut audio_bytes = Vec::new();
     bot.download_file(&file.path, &mut audio_bytes).await?;
 
-    // Write downloaded bytes to a temporary file
-    let mut temp_input_file = NamedTempFile::new()?;
-    temp_input_file.write_all(&audio_bytes)?;
+    // Prefer MIME from Telegram message if provided; otherwise infer from file path
+    let mime: Mime = if let Some(m) = audio_info.mime.clone() {
+        m
+    } else {
+        let guessed = mime_guess::from_path(&file.path).first_or_octet_stream();
+        let essence = guessed.essence_str();
+        Mime::from_str(essence).unwrap_or_else(|_| {
+            warn!(
+                "Failed to parse guessed MIME '{}' — defaulting to application/octet-stream",
+                essence
+            );
+            Mime::from_str("application/octet-stream").unwrap()
+        })
+    };
 
-    // Run FFmpeg command to convert to FLAC and output to stdout
-    let output = Command::new("ffmpeg")
-        .arg("-i")
-        .arg(temp_input_file.path().to_str().unwrap())
-        .arg("-ar")
-        .arg("16000")
-        .arg("-ac")
-        .arg("1")
-        .arg("-map")
-        .arg("0:a")
-        .arg("-c:a")
-        .arg("flac")
-        .arg("-f") // Format
-        .arg("flac")
-        .arg("pipe:1") // Output to stdout
-        .output()?;
-
-    // Remove the temporary input file immediately after output is captured
-    drop(temp_input_file);
-
-    if !output.status.success() {
-        // Log the command error output (stderr)
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        error!("FFmpeg command failed with Error: {stderr}");
-        return Err(Error::from("FFmpeg conversion failed"));
-    }
-
-    // Return the FLAC bytes, MIME type, and duration
-    Ok((
-        output.stdout, // Use stdout directly as our FLAC bytes
-        Mime::from_str("audio/flac").unwrap(),
-        audio_info.duration,
-    ))
+    Ok((audio_bytes, mime, audio_info.duration))
 }
