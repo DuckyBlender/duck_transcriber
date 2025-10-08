@@ -1,20 +1,66 @@
 use crate::BASE_URL;
-use crate::types::{GroqChatMessage, GroqChatRequest, GroqChatResponse, SummarizeMethod};
+use crate::types::{
+    GroqChatMessage, GroqChatRequest, GroqChatResponse, SummarizeMethod, TranscriptionError,
+};
+use crate::utils;
+use log::{error, info, warn};
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
-use std::env;
 
-pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, String> {
+pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, TranscriptionError> {
+    let api_keys = utils::get_api_keys();
+
+    if api_keys.is_empty() {
+        error!("No API keys configured");
+        return Err(TranscriptionError::ApiError(
+            "API key not configured".to_string(),
+        ));
+    }
+
+    // Try each API key until one succeeds
+    let mut last_error = None;
+    for (attempt, api_key) in api_keys.iter().enumerate() {
+        info!(
+            "Attempting summarization with API key {} of {}",
+            attempt + 1,
+            api_keys.len()
+        );
+
+        match summarize_with_key(text, method, api_key).await {
+            Ok(result) => return Ok(result),
+            Err(TranscriptionError::RateLimitReached) => {
+                warn!(
+                    "Rate limit reached with key {}, trying next key",
+                    attempt + 1
+                );
+                last_error = Some(TranscriptionError::RateLimitReached);
+                continue;
+            }
+            Err(e) => {
+                error!("Error with key {}: {}", attempt + 1, e);
+                last_error = Some(e);
+                break;
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| TranscriptionError::ApiError("All API keys failed".to_string())))
+}
+
+async fn summarize_with_key(
+    text: &str,
+    method: SummarizeMethod,
+    api_key: &str,
+) -> Result<String, TranscriptionError> {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        format!(
-            "Bearer {}",
-            env::var("GROQ_API_KEY").expect("GROQ_API_KEY not found")
-        )
-        .parse()
-        .unwrap(),
-    );
+
+    let auth_value = format!("Bearer {}", api_key).parse().map_err(|e| {
+        error!("Failed to parse authorization header: {e}");
+        TranscriptionError::ParseError("Invalid API key format".to_string())
+    })?;
+
+    headers.insert(AUTHORIZATION, auth_value);
 
     let system_prompt = match method {
         SummarizeMethod::Default => {
@@ -53,23 +99,35 @@ pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, St
         .json(&request)
         .send()
         .await
-        .map_err(|err| format!("Failed to send request to Groq: {err}"))?;
+        .map_err(|err| {
+            error!("Failed to send request to Groq: {err}");
+            TranscriptionError::NetworkError(format!("Failed to send request: {err}"))
+        })?;
 
     if !res.status().is_success() {
-        let json = res
-            .json::<serde_json::Value>()
-            .await
-            .map_err(|err| format!("Failed to parse Groq error response: {err}"))?;
-        return Err(format!(
-            "Groq returned an error: {}",
-            json["error"]["message"]
-        ));
+        let json = res.json::<serde_json::Value>().await.map_err(|err| {
+            error!("Failed to parse Groq error response: {err}");
+            TranscriptionError::ParseError("Failed to parse API error response".to_string())
+        })?;
+
+        // Check for rate limit
+        if json["error"]["code"] == "rate_limit_exceeded" {
+            warn!("Rate limit reached for chat API");
+            return Err(TranscriptionError::RateLimitReached);
+        }
+
+        let error_msg = json["error"]["message"].as_str().unwrap_or("unknown error");
+        error!("Groq returned an error: {error_msg}");
+        return Err(TranscriptionError::ApiError(format!(
+            "Groq error: {}",
+            error_msg
+        )));
     }
 
-    let response = res
-        .json::<GroqChatResponse>()
-        .await
-        .map_err(|err| format!("Failed to parse Groq response: {err}"))?;
+    let response = res.json::<GroqChatResponse>().await.map_err(|err| {
+        error!("Failed to parse Groq response: {err}");
+        TranscriptionError::ParseError("Failed to parse API response".to_string())
+    })?;
 
     Ok(response.choices[0].message.content.trim().to_string())
 }

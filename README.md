@@ -33,10 +33,18 @@ Developer commands have been removed.
 - The bot uses AWS DynamoDB to store and retrieve transcriptions, ensuring that repeated requests for the same audio do not require retranscription.
 - The bot is deployed as a serverless function using AWS Lambda.
 
+### Error Handling & Reliability
+
+- **Robust Error Handling**: All errors are properly handled and return HTTP 200 to prevent Telegram webhook retry loops.
+- **IP Validation**: Validates that all incoming requests come from official Telegram server IP ranges. Unauthorized requests are silently rejected.
+- **Multi-API-Key Support**: Configure multiple Groq API keys for automatic failover. When a rate limit is hit, the bot automatically tries the next key.
+- **Rate Limit Feedback**: When all API keys are rate limited, the bot reacts with a 😴 emoji on the message to provide visual feedback without spamming the user.
+- **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization (rate limits, network errors, parse errors, API errors).
+
 ## Environment Variables
 
 - `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
-- `GROQ_API_KEY`: the API key for the Groq Whisper API.
+- `GROQ_API_KEY`: the API key(s) for the Groq Whisper API. Supports multiple keys separated by commas for automatic failover on rate limits (e.g., `key1,key2,key3`).
 - `DYNAMODB_TABLE`: the name of the DynamoDB table where transcriptions are stored.
   
 
@@ -57,6 +65,39 @@ cargo lambda build --release --arm64
 To deploy:
 ```bash
 cargo lambda deploy
+```
+
+### Setting Up the Telegram Webhook
+
+After deploying your Lambda function, you need to configure the Telegram webhook to point to your Lambda function URL.
+
+#### Basic Setup
+
+Replace `<YOUR_BOT_TOKEN>` with your Telegram bot token and `<YOUR_LAMBDA_URL>` with your Lambda function URL:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "<YOUR_LAMBDA_URL>",
+    "allowed_updates": ["message"]
+  }'
+```
+
+**Important**: The `allowed_updates` parameter can be set to `["message"]` to ensure the bot only receives message updates and nothing else (like inline queries, polls, etc.). This will reduce Lambda costs.
+
+#### Troubleshooting Setup
+
+If the bot is stuck in a loop or something goes wrong, you can reset the webhook and drop all pending updates:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "<YOUR_LAMBDA_URL>",
+    "allowed_updates": ["message"],
+    "drop_pending_updates": true
+  }'
 ```
 
 ### FFmpeg

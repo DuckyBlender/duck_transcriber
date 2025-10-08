@@ -1,3 +1,4 @@
+use std::env;
 use lambda_http::{Body, Request};
 use log::{info, warn};
 use serde_json::Error;
@@ -104,4 +105,28 @@ pub fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> TypingIndicatorGuard
     });
 
     TypingIndicatorGuard { task }
+}
+
+pub fn get_api_keys() -> Vec<String> {
+    match env::var("GROQ_API_KEY") {
+        Ok(keys_str) => {
+            let keys: Vec<String> = keys_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            if keys.is_empty() {
+                warn!("GROQ_API_KEY is empty");
+                vec![]
+            } else {
+                info!("Loaded {} API key(s)", keys.len());
+                keys
+            }
+        }
+        Err(_) => {
+            warn!("GROQ_API_KEY environment variable not set");
+            vec![]
+        }
+    }
 }

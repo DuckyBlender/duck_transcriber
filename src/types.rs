@@ -123,6 +123,7 @@ pub struct GroqWhisperSegment {
     pub no_speech_prob: f64,
 }
 
+#[derive(Clone, Copy)]
 pub enum SummarizeMethod {
     Default,
     Caveman,
@@ -163,4 +164,23 @@ pub enum ItemReturnInfo {
     Text(String),
     Exists, // Item already exists, but for other task type.
     None,
+}
+
+#[derive(Debug)]
+pub enum TranscriptionError {
+    RateLimitReached,
+    NetworkError(String),
+    ParseError(String),
+    ApiError(String),
+}
+
+impl std::fmt::Display for TranscriptionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TranscriptionError::RateLimitReached => write!(f, "Rate limit reached"),
+            TranscriptionError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            TranscriptionError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            TranscriptionError::ApiError(msg) => write!(f, "API error: {}", msg),
+        }
+    }
 }

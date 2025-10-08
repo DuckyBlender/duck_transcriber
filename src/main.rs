@@ -2,7 +2,7 @@ use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
 use core::str;
 
-use lambda_http::{Error, run, service_fn};
+use lambda_http::{Error, RequestExt, run, service_fn};
 use log::LevelFilter;
 use log::{debug, error, info, warn};
 use mime::Mime;
@@ -16,10 +16,12 @@ use teloxide::utils::markdown::escape;
 use teloxide::{net::Download, prelude::*};
 use types::{
     AudioAction, AudioFileInfo, BotCommand, DBItem, ItemReturnInfo, SummarizeMethod, TaskType,
+    TranscriptionError,
 };
 use utils::{parse_webhook, safe_send, start_typing_indicator};
 
 mod dynamodb;
+mod ip_validator;
 mod summarize;
 mod transcribe;
 mod types;
@@ -68,29 +70,71 @@ async fn handler(
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
+    // Validate source IP is from Telegram (Lambda Function URL)
+    // Lambda Function URLs use API Gateway V2 format with requestContext.http.sourceIp
+    let source_ip = match req.request_context() {
+        lambda_http::request::RequestContext::ApiGatewayV2(ctx) => {
+            // Primary: Get from requestContext.http.sourceIp
+            ctx.http.source_ip.clone().unwrap_or_else(|| {
+                // Fallback: Get from x-forwarded-for header
+                req.headers()
+                    .get("x-forwarded-for")
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|s| s.split(',').next())
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            })
+        }
+        _ => {
+            warn!("Unexpected request context type");
+            "unknown".to_string()
+        }
+    };
+
+    if !ip_validator::is_telegram_ip(&source_ip) {
+        warn!("Rejected request from non-Telegram IP: {}", source_ip);
+        // Return 200 to prevent potential retry loops
+        return Ok(lambda_http::Response::builder()
+            .status(200)
+            .body(String::new())
+            .unwrap());
+    }
+
+    info!("Accepted request from Telegram IP: {}", source_ip);
+
     // Parse JSON webhook
     let update = match parse_webhook(req).await {
         Ok(message) => message,
         Err(e) => {
             error!("Failed to parse webhook: {e:?}");
+            // Return 200 to prevent Telegram from retrying
             return Ok(lambda_http::Response::builder()
-                .status(400)
-                .body("Failed to parse webhook".into())
+                .status(200)
+                .body(String::new())
                 .unwrap());
         }
     };
 
     if let UpdateKind::Message(message) = update.kind {
+        // Get bot username for command parsing
+        let bot_username = match bot.get_me().await {
+            Ok(me) => me.username().to_string(),
+            Err(e) => {
+                error!("Failed to get bot info: {e:?}");
+                return ok_response();
+            }
+        };
+
         // Handle commands in text
         if let Some(text) = message.text()
-            && let Ok(command) = BotCommand::parse(text, bot.get_me().await.unwrap().username())
+            && let Ok(command) = BotCommand::parse(text, &bot_username)
         {
             return handle_command(bot, &message, command, dynamodb).await;
         }
 
         // Handle commands in caption (when attached to media)
         if let Some(caption) = message.caption()
-            && let Ok(command) = BotCommand::parse(caption, bot.get_me().await.unwrap().username())
+            && let Ok(command) = BotCommand::parse(caption, &bot_username)
         {
             return handle_command(bot, &message, command, dynamodb).await;
         }
@@ -359,15 +403,28 @@ async fn handle_audio_message(
     let transcription = match transcribe::transcribe(&task_type, audio_bytes, mime).await {
         Ok(transcription) => transcription,
         Err(e) => {
-            if e.starts_with("Rate limit reached.") {
-                return Ok(lambda_http::Response::builder()
-                    .status(429)
-                    .body("Rate limit reached".into())
-                    .unwrap());
+            match e {
+                TranscriptionError::RateLimitReached => {
+                    warn!("Rate limit reached for message");
+                    // React with sleeping emoji to indicate rate limit
+                    if let Err(err) = bot
+                        .set_message_reaction(reply_context.chat.id, reply_context.id)
+                        .reaction([teloxide::types::ReactionType::Emoji {
+                            emoji: "😴".to_string(),
+                        }])
+                        .await
+                    {
+                        error!("Failed to set reaction: {err:?}");
+                    }
+                    // Return 200 to prevent Telegram from retrying
+                    return ok_response();
+                }
+                _ => {
+                    warn!("Failed to transcribe audio: {e}");
+                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                    return ok_response();
+                }
             }
-            warn!("Failed to transcribe audio: {e}");
-            safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
-            return ok_response();
         }
     };
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());

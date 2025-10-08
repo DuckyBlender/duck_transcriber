@@ -1,17 +1,24 @@
 use crate::types::{DBItem, ItemReturnInfo, TaskType};
 use aws_sdk_dynamodb::{Client, Error, types::AttributeValue};
-use log::info;
+use log::{error, info};
 use std::env;
 use teloxide::types::FileUniqueId;
 
 const EXPIRATION_DAYS: i64 = 7;
+
+fn get_table_name() -> String {
+    env::var("DYNAMODB_TABLE").unwrap_or_else(|_| {
+        error!("DYNAMODB_TABLE environment variable not set");
+        panic!("DYNAMODB_TABLE must be configured");
+    })
+}
 
 pub async fn get_item(
     client: &Client,
     unique_file_id: &FileUniqueId,
     task_type: &TaskType,
 ) -> Result<ItemReturnInfo, Error> {
-    let table = env::var("DYNAMODB_TABLE").unwrap();
+    let table = get_table_name();
     let key = AttributeValue::S(unique_file_id.to_string());
     let task_type = task_type.to_string();
 
@@ -27,19 +34,30 @@ pub async fn get_item(
         .send()
         .await?;
 
-    if let Some(item) = results.items {
-        if item.is_empty() {
+    if let Some(items) = results.items {
+        if items.is_empty() {
             info!("No items found for unique_file_id '{unique_file_id}'");
             return Ok(ItemReturnInfo::None);
         }
 
-        let transcription = item.first().unwrap().get(&task_type);
+        let first_item = match items.first() {
+            Some(item) => item,
+            None => {
+                error!("Failed to get first item from DynamoDB results");
+                return Ok(ItemReturnInfo::None);
+            }
+        };
 
-        match transcription {
+        match first_item.get(&task_type) {
             Some(transcription) => {
                 info!("{task_type} found for unique_file_id '{unique_file_id}'");
-                let transcription = transcription.as_s().unwrap().to_string();
-                Ok(ItemReturnInfo::Text(transcription))
+                match transcription.as_s() {
+                    Ok(text) => Ok(ItemReturnInfo::Text(text.to_string())),
+                    Err(e) => {
+                        error!("Failed to parse transcription as string: {e:?}");
+                        Ok(ItemReturnInfo::None)
+                    }
+                }
             }
             None => {
                 info!("No {task_type} found for unique_file_id '{unique_file_id}'");
@@ -58,7 +76,7 @@ pub async fn append_attribute(
     task_type: &TaskType,
     text: &String,
 ) -> Result<(), Error> {
-    let table = env::var("DYNAMODB_TABLE").unwrap();
+    let table = get_table_name();
     let key = AttributeValue::S(unique_file_id.to_string());
     let task_type = task_type.to_string();
     let text = AttributeValue::S(text.to_string());
@@ -87,7 +105,7 @@ pub async fn append_attribute(
 }
 
 pub async fn add_item(client: &Client, item: DBItem) -> Result<(), Error> {
-    let table = env::var("DYNAMODB_TABLE").unwrap();
+    let table = get_table_name();
     let text = AttributeValue::S(item.text);
     let file_id = AttributeValue::S(item.unique_file_id);
     let expires_at = AttributeValue::N(item.expires_at.to_string());

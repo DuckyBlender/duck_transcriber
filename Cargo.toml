@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lambda_http = "0.16"
+lambda_http = "0.17"
 lambda_runtime = "0.14"
 chrono = "0.4"
 reqwest = { version = "0.12", features = [
@@ -19,10 +19,11 @@ teloxide = { version = "0.17", features = ["macros", "rustls", "cache-me"], defa
 mime = "0.3"
 mime_guess = "2.0"
 aws-config = { version = "1.8", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "1.87"
+aws-sdk-dynamodb = "1.95"
 strum = { version = "0.27", features = ["derive"] }
 log = "0.4"
 fern = "0.7"
+ipnetwork = "0.20"
 
 [package.metadata.lambda.deploy]
 memory = 256      # Function's memory (increased for larger direct uploads)

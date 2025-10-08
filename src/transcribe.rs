@@ -1,33 +1,80 @@
 use crate::BASE_URL;
-use crate::types::{GroqWhisperResponse, TaskType};
-use log::{error, warn};
+use crate::types::{GroqWhisperResponse, TaskType, TranscriptionError};
+use crate::utils;
+use log::{error, info, warn};
 use mime::Mime;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
-use std::env;
 
 pub async fn transcribe(
     task_type: &TaskType,
     buffer: Vec<u8>,
     mime: Mime,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, TranscriptionError> {
+    let api_keys = utils::get_api_keys();
+
+    if api_keys.is_empty() {
+        error!("No API keys configured");
+        return Err(TranscriptionError::ApiError(
+            "API key not configured".to_string(),
+        ));
+    }
+
+    // Try each API key until one succeeds
+    let mut last_error = None;
+    for (attempt, api_key) in api_keys.iter().enumerate() {
+        info!(
+            "Attempting transcription with API key {} of {}",
+            attempt + 1,
+            api_keys.len()
+        );
+
+        match transcribe_with_key(task_type, buffer.clone(), mime.clone(), api_key).await {
+            Ok(result) => return Ok(result),
+            Err(TranscriptionError::RateLimitReached) => {
+                warn!(
+                    "Rate limit reached with key {}, trying next key",
+                    attempt + 1
+                );
+                last_error = Some(TranscriptionError::RateLimitReached);
+                continue;
+            }
+            Err(e) => {
+                error!("Error with key {}: {}", attempt + 1, e);
+                last_error = Some(e);
+                break;
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| TranscriptionError::ApiError("All API keys failed".to_string())))
+}
+
+async fn transcribe_with_key(
+    task_type: &TaskType,
+    buffer: Vec<u8>,
+    mime: Mime,
+    api_key: &str,
+) -> Result<Option<String>, TranscriptionError> {
     // Set Groq API headers
     let mut headers: HeaderMap = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        format!(
-            "Bearer {}",
-            env::var("GROQ_API_KEY").expect("GROQ_API_KEY not found")
-        )
-        .parse()
-        .unwrap(),
-    );
+
+    let auth_value = format!("Bearer {}", api_key).parse().map_err(|e| {
+        error!("Failed to parse authorization header: {e}");
+        TranscriptionError::ParseError("Invalid API key format".to_string())
+    })?;
+
+    headers.insert(AUTHORIZATION, auth_value);
 
     // Create multipart request
     let part = reqwest::multipart::Part::bytes(buffer)
         .file_name(format!("audio.{}", mime.subtype()))
         .mime_str(mime.as_ref())
-        .unwrap();
+        .map_err(|e| {
+            error!("Failed to parse MIME type: {e}");
+            TranscriptionError::ParseError("Invalid MIME type".to_string())
+        })?;
     let form = reqwest::multipart::Form::new()
         .text("model", "whisper-large-v3")
         .text("response_format", "verbose_json")
@@ -48,44 +95,35 @@ pub async fn transcribe(
         .await
         .map_err(|err| {
             error!("Failed to send request to OpenAI: {err}");
-            format!("Failed to send request to OpenAI: {err}")
+            TranscriptionError::NetworkError(format!("Failed to send request: {err}"))
         })?;
 
-    // IT'S EXTREMELY IMPORTANT TO HANDLE EVERY ERROR FROM HERE. WE CANNOT RETURN STATUS OTHER THEN 200, TELEGRAM IS GOING TO KEEP SENDING THE WEBHOOK AGAIN CREATING AN INFINITE LOOP.
     // Check if Groq returned an error
     let status = res.status();
     if !status.is_success() {
-        let json = res
-            .json::<serde_json::Value>()
-            .await
-            .map_err(|err| format!("Failed to parse OpenAI error response: {err}"));
-
-        if let Err(err) = json {
-            error!("{err}");
-            return Err("Failed to parse OpenAI error response".to_string());
-        }
-        let json = json.unwrap();
+        let json = res.json::<serde_json::Value>().await.map_err(|err| {
+            error!("Failed to parse OpenAI error response: {err}");
+            TranscriptionError::ParseError("Failed to parse API error response".to_string())
+        })?;
 
         if json["error"]["code"] == "rate_limit_exceeded" {
             warn!("Rate limit reached. Here is the response: {json:?}");
-
-            // DONT CHANGE THIS STRING!
-            return Err("Rate limit reached.".to_string());
+            return Err(TranscriptionError::RateLimitReached);
         }
 
         error!("Groq returned an error: {json:?}");
-        return Err(format!("Groq returned an error: {}", json["error"]["code"]));
+        let error_code = json["error"]["code"].as_str().unwrap_or("unknown");
+        return Err(TranscriptionError::ApiError(format!(
+            "Groq error: {}",
+            error_code
+        )));
     }
 
     // Extract all of the segments
-    let res = res.json::<GroqWhisperResponse>().await;
-
-    if let Err(err) = res {
+    let res = res.json::<GroqWhisperResponse>().await.map_err(|err| {
         error!("Failed to parse OpenAI response: {err}");
-        return Err("Failed to parse OpenAI response".to_string());
-    }
-
-    let res = res.unwrap();
+        TranscriptionError::ParseError("Failed to parse API response".to_string())
+    })?;
 
     let mut output_text = String::new();
 
