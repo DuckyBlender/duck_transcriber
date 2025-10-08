@@ -29,7 +29,7 @@ pub fn is_telegram_ip(ip_str: &str) -> bool {
     let ip = match IpAddr::from_str(ip_str) {
         Ok(addr) => addr,
         Err(e) => {
-            warn!("Failed to parse IP address '{}': {}", ip_str, e);
+            warn!("Failed to parse IP address: {}", e);
             return false;
         }
     };
@@ -44,15 +44,12 @@ pub fn is_telegram_ip(ip_str: &str) -> bool {
         };
 
         if network.contains(ip) {
-            info!(
-                "IP {} is from Telegram (matched range {})",
-                ip_str, range_str
-            );
+            info!("IP matched Telegram range");
             return true;
         }
     }
 
-    warn!("IP {} is NOT from Telegram servers", ip_str);
+    warn!("IP is NOT from Telegram servers");
     false
 }
 

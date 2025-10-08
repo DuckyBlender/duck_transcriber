@@ -27,6 +27,7 @@ mod transcribe;
 mod types;
 mod utils;
 
+const LOG_LEVEL: LevelFilter = LevelFilter::Info;
 const MAX_DURATION: u32 = 30; // in minutes
 const MAX_FILE_SIZE: u32 = 20; // in MB (telegram download limit)
 
@@ -39,7 +40,7 @@ async fn main() -> Result<(), Error> {
         .format(move |out, message, record| {
             out.finish(format_args!("[{}] {}", record.target(), message))
         })
-        .level(LevelFilter::Info)
+        .level(LOG_LEVEL)
         .chain(std::io::stdout())
         .apply()?;
 
@@ -92,7 +93,7 @@ async fn handler(
     };
 
     if !ip_validator::is_telegram_ip(&source_ip) {
-        warn!("Rejected request from non-Telegram IP: {}", source_ip);
+        warn!("Rejected request from non-Telegram IP");
         // Return 200 to prevent potential retry loops
         return Ok(lambda_http::Response::builder()
             .status(200)
@@ -100,7 +101,7 @@ async fn handler(
             .unwrap());
     }
 
-    info!("Accepted request from Telegram IP: {}", source_ip);
+    info!("Accepted request from Telegram IP");
 
     // Parse JSON webhook
     let update = match parse_webhook(req).await {

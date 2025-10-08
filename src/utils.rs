@@ -1,7 +1,7 @@
-use std::env;
 use lambda_http::{Body, Request};
 use log::{info, warn};
 use serde_json::Error;
+use std::env;
 use teloxide::{
     Bot,
     payloads::{SendDocumentSetters, SendMessageSetters},
