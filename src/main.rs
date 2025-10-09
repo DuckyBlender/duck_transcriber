@@ -2,7 +2,7 @@ use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
 use core::str;
 
-use lambda_http::{Error, RequestExt, run, service_fn};
+use lambda_http::{Error, run, service_fn};
 use log::LevelFilter;
 use log::{debug, error, info, warn};
 use mime::Mime;
@@ -21,7 +21,6 @@ use types::{
 use utils::{parse_webhook, safe_send, start_typing_indicator};
 
 mod dynamodb;
-mod ip_validator;
 mod summarize;
 mod transcribe;
 mod types;
@@ -71,37 +70,33 @@ async fn handler(
     bot: &Bot,
     dynamodb: &aws_sdk_dynamodb::Client,
 ) -> Result<lambda_http::Response<String>, lambda_http::Error> {
-    // Validate source IP is from Telegram (Lambda Function URL)
-    // Lambda Function URLs use API Gateway V2 format with requestContext.http.sourceIp
-    let source_ip = match req.request_context() {
-        lambda_http::request::RequestContext::ApiGatewayV2(ctx) => {
-            // Primary: Get from requestContext.http.sourceIp
-            ctx.http.source_ip.clone().unwrap_or_else(|| {
-                // Fallback: Get from x-forwarded-for header
-                req.headers()
-                    .get("x-forwarded-for")
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|s| s.split(',').next())
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            })
-        }
-        _ => {
-            warn!("Unexpected request context type");
-            "unknown".to_string()
-        }
-    };
+    // Validate X-Telegram-Bot-Api-Secret-Token header
+    // This is more reliable than IP checking, especially when behind proxies
+    let expected_secret_token = env::var("TELEGRAM_SECRET_TOKEN").unwrap_or_else(|_| {
+        warn!("TELEGRAM_SECRET_TOKEN environment variable not set");
+        String::new()
+    });
 
-    if !ip_validator::is_telegram_ip(&source_ip) {
-        warn!("Rejected request from non-Telegram IP");
-        // Return 200 to prevent potential retry loops
-        return Ok(lambda_http::Response::builder()
-            .status(200)
-            .body(String::new())
-            .unwrap());
+    if !expected_secret_token.is_empty() {
+        let received_token = req
+            .headers()
+            .get("x-telegram-bot-api-secret-token")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("");
+
+        if received_token != expected_secret_token {
+            warn!("Rejected request: invalid or missing secret token");
+            // Return 200 to prevent potential retry loops
+            return Ok(lambda_http::Response::builder()
+                .status(200)
+                .body(String::new())
+                .unwrap());
+        }
+
+        info!("Accepted request with valid secret token");
+    } else {
+        warn!("Secret token validation is disabled (TELEGRAM_SECRET_TOKEN not set)");
     }
-
-    info!("Accepted request from Telegram IP");
 
     // Parse JSON webhook
     let update = match parse_webhook(req).await {

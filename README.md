@@ -36,7 +36,7 @@ Developer commands have been removed.
 ### Error Handling & Reliability
 
 - **Robust Error Handling**: All errors are properly handled and return HTTP 200 to prevent Telegram webhook retry loops.
-- **IP Validation**: Validates that all incoming requests come from official Telegram server IP ranges. Unauthorized requests are silently rejected.
+- **Secret Token Validation**: Validates webhook requests using the `X-Telegram-Bot-Api-Secret-Token` header. This is more reliable than IP checking and works correctly behind proxies. Unauthorized requests are silently rejected.
 - **Multi-API-Key Support**: Configure multiple Groq API keys for automatic failover. When a rate limit is hit, the bot automatically tries the next key.
 - **Rate Limit Feedback**: When all API keys are rate limited, the bot reacts with a 😴 emoji on the message to provide visual feedback without spamming the user.
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization (rate limits, network errors, parse errors, API errors).
@@ -44,6 +44,7 @@ Developer commands have been removed.
 ## Environment Variables
 
 - `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
+- `TELEGRAM_SECRET_TOKEN`: a secret token for validating webhook requests. You can use any random string (e.g., generate one with `openssl rand -hex 32`). This token must be provided when setting up the webhook.
 - `GROQ_API_KEY`: the API key(s) for the Groq Whisper API. Supports multiple keys separated by commas for automatic failover on rate limits (e.g., `key1,key2,key3`).
 - `DYNAMODB_TABLE`: the name of the DynamoDB table where transcriptions are stored.
   
@@ -73,18 +74,21 @@ After deploying your Lambda function, you need to configure the Telegram webhook
 
 #### Basic Setup
 
-Replace `<YOUR_BOT_TOKEN>` with your Telegram bot token and `<YOUR_LAMBDA_URL>` with your Lambda function URL:
+Replace `<YOUR_BOT_TOKEN>` with your Telegram bot token, `<YOUR_LAMBDA_URL>` with your Lambda function URL, and `<YOUR_SECRET_TOKEN>` with the secret token you set in the `TELEGRAM_SECRET_TOKEN` environment variable:
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "<YOUR_LAMBDA_URL>",
+    "secret_token": "<YOUR_SECRET_TOKEN>",
     "allowed_updates": ["message"]
   }'
 ```
 
-**Important**: The `allowed_updates` parameter can be set to `["message"]` to ensure the bot only receives message updates and nothing else (like inline queries, polls, etc.). This will reduce Lambda costs.
+**Important**: 
+- The `secret_token` parameter must match the `TELEGRAM_SECRET_TOKEN` environment variable you configured in your Lambda function. This validates that webhook requests are coming from Telegram.
+- The `allowed_updates` parameter can be set to `["message"]` to ensure the bot only receives message updates and nothing else (like inline queries, polls, etc.). This will reduce Lambda costs.
 
 #### Troubleshooting Setup
 
@@ -95,6 +99,7 @@ curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "<YOUR_LAMBDA_URL>",
+    "secret_token": "<YOUR_SECRET_TOKEN>",
     "allowed_updates": ["message"],
     "drop_pending_updates": true
   }'

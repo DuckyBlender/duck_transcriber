@@ -23,7 +23,6 @@ aws-sdk-dynamodb = "1.95"
 strum = { version = "0.27", features = ["derive"] }
 log = "0.4"
 fern = "0.7"
-ipnetwork = "0.20"
 
 [package.metadata.lambda.deploy]
 memory = 256      # Function's memory (increased for larger direct uploads)
