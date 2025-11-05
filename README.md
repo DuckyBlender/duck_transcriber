@@ -30,7 +30,7 @@ Developer commands have been removed.
 - The bot is built using the `teloxide` crate for interacting with the Telegram API.
 - The transcription is done using the `reqwest` crate to send a request to the Groq Whisper API.
 - The original file from Telegram is uploaded directly to the Groq Whisper API. FFmpeg has been removed due to memory constraints in the serverless environment, so no conversion step is performed.
-- The bot uses AWS DynamoDB to store and retrieve transcriptions, ensuring that repeated requests for the same audio do not require retranscription.
+- The bot uses AWS DynamoDB to cache transcriptions and translations, lowering the amount of API calls. The cache is cleared after 7 days.
 - The bot is deployed as a serverless function using AWS Lambda.
 
 ### Error Handling & Reliability
@@ -115,7 +115,7 @@ Ensure that your AWS Lambda function has the necessary permissions to access Dyn
 
 ## License
 
-Do literally whatever you want with this code. I don't care.
+This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
