@@ -92,12 +92,14 @@ pub enum AudioSourceKind {
     Audio,
 }
 
-#[derive(strum::Display)]
+#[derive(strum::Display, Clone, Copy)]
 pub enum TaskType {
     #[strum(to_string = "transcribe")]
     Transcribe,
     #[strum(to_string = "translate")]
     Translate,
+    #[strum(to_string = "summarize")]
+    Summarize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

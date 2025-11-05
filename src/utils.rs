@@ -1,3 +1,4 @@
+use crate::types::TaskType;
 use lambda_http::{Body, Request};
 use log::{info, warn};
 use serde_json::Error;
@@ -25,7 +26,7 @@ pub async fn safe_send(
     message: &Message,
     content: Option<&str>,
     parse_mode: Option<ParseMode>,
-    long_content_label: Option<&str>,
+    task_type: Option<TaskType>,
 ) {
     // Send the content to the user
     let content = content.unwrap_or("<no text>").trim().to_string();
@@ -34,13 +35,12 @@ pub async fn safe_send(
     if content.len() > 4096 {
         info!("Content is too long, sending as a file instead of multiple messages");
 
-        // Decide label and filename based on provided label
-        let label = long_content_label.unwrap_or("content");
-        let filename = match label {
-            "transcript" => "transcript.txt",
-            "translation" => "translation.txt",
-            "summarization" | "summary" => "summary.txt",
-            _ => "content.txt",
+        // Decide label and filename based on provided task type
+        let (label, filename) = match task_type {
+            Some(TaskType::Transcribe) => ("transcript", "transcript.txt"),
+            Some(TaskType::Translate) => ("translation", "translation.txt"),
+            Some(TaskType::Summarize) => ("summary", "summary.txt"),
+            None => ("content", "content.txt"),
         };
 
         let caption = format!("Your {} is too long. Here is the file:", label);

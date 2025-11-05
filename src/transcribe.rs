@@ -85,6 +85,7 @@ async fn transcribe_with_key(
     let url_ending = match task_type {
         TaskType::Transcribe => "/audio/transcriptions",
         TaskType::Translate => "/audio/translations",
+        TaskType::Summarize => unreachable!("Summarize should not use Whisper API"),
     };
 
     let res = client
@@ -130,7 +131,7 @@ async fn transcribe_with_key(
     // Extract all of the segments.
     for segment in res.segments {
         // If the no_speech_prob value is higher than 1.0 and the avg_logprob is below -1, consider this segment silent.
-        // These values are fine-tuned from a lot of testing. They work way better than the default values.
+        // These values are fine-tuned from a lot of testing. They work way better than the default values. No values are perfect, and there are still some hallucinations.
         if segment.no_speech_prob > 0.6 && segment.avg_logprob < -0.4 {
             continue;
         }

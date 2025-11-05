@@ -333,11 +333,14 @@ async fn handle_audio_message(
                 "Transcription found in DynamoDB for unique_file_id: {}",
                 audio_info.unique_id
             );
-            let label = match task_type {
-                TaskType::Transcribe => "transcript",
-                TaskType::Translate => "translation",
-            };
-            safe_send(bot, reply_context, Some(&transcription), None, Some(label)).await;
+            safe_send(
+                bot,
+                reply_context,
+                Some(&transcription),
+                None,
+                Some(task_type),
+            )
+            .await;
             return Ok(lambda_http::Response::builder()
                 .status(200)
                 .body(String::new())
@@ -434,11 +437,14 @@ async fn handle_audio_message(
     drop(typing_guard);
 
     // Send the transcription/translation to the user
-    let label = match task_type {
-        TaskType::Transcribe => "transcript",
-        TaskType::Translate => "translation",
-    };
-    safe_send(bot, reply_context, Some(&transcription), None, Some(label)).await;
+    safe_send(
+        bot,
+        reply_context,
+        Some(&transcription),
+        None,
+        Some(task_type),
+    )
+    .await;
 
     // Save the transcription to DynamoDB
     let item = DBItem {
@@ -594,7 +600,7 @@ async fn handle_summarization(
         reply_context,
         Some(&formatted_summary),
         Some(ParseMode::MarkdownV2),
-        Some("summarization"),
+        Some(TaskType::Summarize),
     )
     .await;
 

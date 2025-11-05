@@ -77,7 +77,7 @@ async fn summarize_with_key(
     };
 
     let request = GroqChatRequest {
-        model: "moonshotai/kimi-k2-instruct".to_string(),
+        model: "moonshotai/kimi-k2-instruct-0905".to_string(),
         messages: vec![
             GroqChatMessage {
                 role: "system".to_string(),
