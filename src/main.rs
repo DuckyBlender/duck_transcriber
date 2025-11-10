@@ -261,14 +261,19 @@ async fn handle_command(
             .await;
         }
         BotCommand::Privacy => {
-            let privacy_policy = "Privacy Policy:\n\
+            let privacy_policy = format!(
+                "Privacy Policy:\n\
             - Bot is open source: https://github.com/DuckyBlender/duck_transcriber\n\
             - Bot caches: unique file id → transcription/translation\n\
             - Nothing else is stored, not even in logs\n\
             - Cache is cleared after 7 days\n\
             - Join @sussy_announcements for support/questions\n\
             - No guarantees about model accuracy or reliability\n\
-            - Uses Whisper v3 (GroqCloud) for transcription/translation";
+            - Uses {} from GroqCloud for instant transcription/translation\n\
+            - Uses {} from GroqCloud for instant summarization",
+                pretty_model_name(transcribe::TRANSCRIPTION_MODEL),
+                pretty_model_name(summarize::SUMMARIZATION_MODEL)
+            );
             safe_send(bot, message, Some(privacy_policy), None, None).await;
         }
     }

@@ -7,6 +7,8 @@ use log::{error, info, warn};
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
 
+pub const SUMMARIZATION_MODEL: &str = "moonshotai/kimi-k2-instruct-0905";
+
 pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, TranscriptionError> {
     let api_keys = utils::get_api_keys();
 
@@ -77,7 +79,7 @@ async fn summarize_with_key(
     };
 
     let request = GroqChatRequest {
-        model: "moonshotai/kimi-k2-instruct-0905".to_string(),
+        model: SUMMARIZATION_MODEL.to_string(),
         messages: vec![
             GroqChatMessage {
                 role: "system".to_string(),

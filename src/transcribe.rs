@@ -6,6 +6,8 @@ use mime::Mime;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
 
+pub const TRANSCRIPTION_MODEL: &str = "whisper-large-v3";
+
 pub async fn transcribe(
     task_type: &TaskType,
     buffer: Vec<u8>,
@@ -76,7 +78,7 @@ async fn transcribe_with_key(
             TranscriptionError::ParseError("Invalid MIME type".to_string())
         })?;
     let form = reqwest::multipart::Form::new()
-        .text("model", "whisper-large-v3")
+        .text("model", TRANSCRIPTION_MODEL.to_string())
         .text("response_format", "verbose_json")
         .part("file", part);
 

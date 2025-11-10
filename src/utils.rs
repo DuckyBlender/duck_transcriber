@@ -130,3 +130,74 @@ pub fn get_api_keys() -> Vec<String> {
         }
     }
 }
+
+/// Convert model identifiers into a human-friendly display name.
+pub fn pretty_model_name(input: &str) -> String {
+    // Take the last path segment if a repository/path prefix is present
+    let segment = input.split('/').last().unwrap_or(input);
+
+    // Normalize separators to dashes, then split on dash
+    let normalized = segment.replace('_', "-");
+    let parts = normalized.split('-');
+
+    let mut out_parts: Vec<String> = Vec::new();
+    for p in parts {
+        let p = p.trim();
+        if p.is_empty() {
+            continue;
+        }
+
+        let lower = p.to_lowercase();
+
+        // Drop tokens that are purely numeric (e.g., "0905")
+        if lower.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+
+        // Drop known boilerplate tokens
+        if lower == "instruct" {
+            continue;
+        }
+
+        // Capitalize first character, preserve the rest as-is
+        let mut chars = p.chars();
+        if let Some(first) = chars.next() {
+            let mut s = String::new();
+            s.extend(first.to_uppercase());
+            s.push_str(chars.as_str());
+            out_parts.push(s);
+        }
+    }
+
+    if out_parts.is_empty() {
+        // Fallback: just capitalize the whole input
+        let mut chars = input.chars();
+        if let Some(first) = chars.next() {
+            let mut s = String::new();
+            s.extend(first.to_uppercase());
+            s.push_str(chars.as_str());
+            return s;
+        }
+        return input.to_string();
+    }
+
+    out_parts.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pretty_model_name;
+
+    #[test]
+    fn test_whisper() {
+        assert_eq!(pretty_model_name("whisper-large-v3"), "Whisper Large V3");
+    }
+
+    #[test]
+    fn test_moonshotai() {
+        assert_eq!(
+            pretty_model_name("moonshotai/kimi-k2-instruct-0905"),
+            "Kimi K2"
+        );
+    }
+}
