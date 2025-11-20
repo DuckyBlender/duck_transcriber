@@ -553,17 +553,42 @@ async fn handle_summarization(
                 match transcribe::transcribe(&TaskType::Translate, audio_bytes, mime).await {
                     Ok(Some(translation)) => {
                         // Cache the translation in DynamoDB
-                        let item = DBItem {
-                            text: translation.clone(),
-                            unique_file_id: audio_info.unique_id.to_string(),
-                            task_type: TaskType::Translate.to_string(),
-                            expires_at: (chrono::Utc::now() + chrono::Duration::days(7))
-                                .timestamp(),
-                        };
+                        info!(
+                            "Saving translation to DynamoDB with unique_file_id: {}",
+                            audio_info.unique_id
+                        );
 
-                        match dynamodb::add_item(dynamodb, item).await {
-                            Ok(_) => info!("Successfully cached translation in DynamoDB"),
-                            Err(e) => error!("Failed to cache translation in DynamoDB: {e:?}"),
+                        match dynamodb::get_item(dynamodb, &audio_info.unique_id, &TaskType::Translate).await {
+                            Ok(ItemReturnInfo::Exists) | Ok(ItemReturnInfo::Text(_)) => {
+                                info!(
+                                    "Updating DynamoDB table for unique_file_id: {}",
+                                    audio_info.unique_id
+                                );
+                                match dynamodb::append_attribute(
+                                    dynamodb,
+                                    &audio_info.unique_id,
+                                    &TaskType::Translate,
+                                    &translation,
+                                )
+                                .await
+                                {
+                                    Ok(_) => info!("Successfully cached translation in DynamoDB"),
+                                    Err(e) => error!("Failed to cache translation in DynamoDB: {e:?}"),
+                                }
+                            }
+                            _ => {
+                                let item = DBItem {
+                                    text: translation.clone(),
+                                    unique_file_id: audio_info.unique_id.to_string(),
+                                    task_type: TaskType::Translate.to_string(),
+                                    expires_at: (chrono::Utc::now() + chrono::Duration::days(7))
+                                        .timestamp(),
+                                };
+                                match dynamodb::add_item(dynamodb, item).await {
+                                    Ok(_) => info!("Successfully cached translation in DynamoDB"),
+                                    Err(e) => error!("Failed to cache translation in DynamoDB: {e:?}"),
+                                }
+                            }
                         }
                         translation
                     }
