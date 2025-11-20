@@ -134,7 +134,7 @@ pub fn get_api_keys() -> Vec<String> {
 /// Convert model identifiers into a human-friendly display name.
 pub fn pretty_model_name(input: &str) -> String {
     // Take the last path segment if a repository/path prefix is present
-    let segment = input.split('/').last().unwrap_or(input);
+    let segment = input.split('/').next_back().unwrap_or(input);
 
     // Normalize separators to dashes, then split on dash
     let normalized = segment.replace('_', "-");

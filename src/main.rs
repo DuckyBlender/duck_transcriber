@@ -18,7 +18,7 @@ use types::{
     AudioAction, AudioFileInfo, BotCommand, DBItem, ItemReturnInfo, SummarizeMethod, TaskType,
     TranscriptionError,
 };
-use utils::{parse_webhook, safe_send, start_typing_indicator};
+use utils::{parse_webhook, pretty_model_name, safe_send, start_typing_indicator};
 
 mod dynamodb;
 mod summarize;
@@ -274,7 +274,7 @@ async fn handle_command(
                 pretty_model_name(transcribe::TRANSCRIPTION_MODEL),
                 pretty_model_name(summarize::SUMMARIZATION_MODEL)
             );
-            safe_send(bot, message, Some(privacy_policy), None, None).await;
+            safe_send(bot, message, Some(&privacy_policy), None, None).await;
         }
     }
 
@@ -558,8 +558,15 @@ async fn handle_summarization(
                             audio_info.unique_id
                         );
 
-                        match dynamodb::get_item(dynamodb, &audio_info.unique_id, &TaskType::Translate).await {
-                            Ok(ItemReturnInfo::Exists) | Ok(ItemReturnInfo::Text(_)) => {
+                        // Check if item already exists to avoid overwriting other task types
+                        match dynamodb::get_item(
+                            dynamodb,
+                            &audio_info.unique_id,
+                            &TaskType::Translate,
+                        )
+                        .await
+                        {
+                            Ok(ItemReturnInfo::Exists) => {
                                 info!(
                                     "Updating DynamoDB table for unique_file_id: {}",
                                     audio_info.unique_id
@@ -572,8 +579,10 @@ async fn handle_summarization(
                                 )
                                 .await
                                 {
-                                    Ok(_) => info!("Successfully cached translation in DynamoDB"),
-                                    Err(e) => error!("Failed to cache translation in DynamoDB: {e:?}"),
+                                    Ok(_) => info!("Successfully updated translation in DynamoDB"),
+                                    Err(e) => {
+                                        error!("Failed to update translation in DynamoDB: {e:?}")
+                                    }
                                 }
                             }
                             _ => {
@@ -584,9 +593,12 @@ async fn handle_summarization(
                                     expires_at: (chrono::Utc::now() + chrono::Duration::days(7))
                                         .timestamp(),
                                 };
+
                                 match dynamodb::add_item(dynamodb, item).await {
                                     Ok(_) => info!("Successfully cached translation in DynamoDB"),
-                                    Err(e) => error!("Failed to cache translation in DynamoDB: {e:?}"),
+                                    Err(e) => {
+                                        error!("Failed to cache translation in DynamoDB: {e:?}")
+                                    }
                                 }
                             }
                         }
