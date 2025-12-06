@@ -4,7 +4,11 @@ use log::{info, warn};
 use serde_json::Error;
 use std::env;
 use teloxide::{
-    Bot, payloads::{SendDocumentSetters, SendMessageSetters}, prelude::Requester, sugar::request::RequestReplyExt, types::{ChatAction, ChatId, InputFile, Message, ParseMode, Update}
+    Bot,
+    payloads::{SendDocumentSetters, SendMessageSetters},
+    prelude::Requester,
+    sugar::request::RequestReplyExt,
+    types::{ChatAction, ChatId, InputFile, Message, ParseMode, Update},
 };
 use tokio::time::{Duration, sleep};
 
