@@ -4,10 +4,7 @@ use log::{info, warn};
 use serde_json::Error;
 use std::env;
 use teloxide::{
-    Bot,
-    payloads::{SendDocumentSetters, SendMessageSetters},
-    prelude::Requester,
-    types::{ChatAction, ChatId, InputFile, Message, ParseMode, ReplyParameters, Update},
+    Bot, payloads::{SendDocumentSetters, SendMessageSetters}, prelude::Requester, sugar::request::RequestReplyExt, types::{ChatAction, ChatId, InputFile, Message, ParseMode, Update}
 };
 use tokio::time::{Duration, sleep};
 
@@ -50,7 +47,7 @@ pub async fn safe_send(
         let bot_msg = bot
             .send_document(message.chat.id, file)
             .caption(caption)
-            .reply_parameters(ReplyParameters::new(message.id))
+            .reply_to(message.id)
             .disable_notification(true)
             .await;
 
@@ -60,7 +57,7 @@ pub async fn safe_send(
     } else {
         let mut bot_msg = bot
             .send_message(message.chat.id, &content)
-            .reply_parameters(ReplyParameters::new(message.id))
+            .reply_to(message.id)
             .disable_notification(true);
 
         if let Some(parse_mode) = parse_mode {
