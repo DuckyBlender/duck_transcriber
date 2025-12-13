@@ -136,7 +136,13 @@ async fn handler(
         }
 
         // Handle audio messages and video notes (auto-transcribe)
-        if message.voice().is_some() || message.video_note().is_some() {
+        // In DMs, also auto-transcribe videos and audio files
+        let is_dm = message.chat.is_private();
+        let should_auto_transcribe = message.voice().is_some()
+            || message.video_note().is_some()
+            || (is_dm && (message.video().is_some() || message.audio().is_some()));
+
+        if should_auto_transcribe {
             return handle_audio_message(&message, &message, bot, dynamodb, TaskType::Transcribe)
                 .await;
         }
@@ -175,6 +181,17 @@ async fn handle_audio_command(
         if has_audio_content(reply) {
             // Reply command - process replied message
             reply
+        } else if let Some(original_reply) = reply.reply_to_message() {
+            // Check if the user replied to a transcription (which itself replied to the original media)
+            // This handles the case where someone does /summarize on a transcription instead of the video
+            if has_audio_content(original_reply) {
+                info!("Found original media through transcription reply chain");
+                original_reply
+            } else {
+                // No audio content found
+                safe_send(bot, message, Some(help_text), None, None).await;
+                return ok_response();
+            }
         } else {
             // No audio content found
             safe_send(bot, message, Some(help_text), None, None).await;
