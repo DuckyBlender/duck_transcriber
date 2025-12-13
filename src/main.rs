@@ -181,17 +181,6 @@ async fn handle_audio_command(
         if has_audio_content(reply) {
             // Reply command - process replied message
             reply
-        } else if let Some(original_reply) = reply.reply_to_message() {
-            // Check if the user replied to a transcription (which itself replied to the original media)
-            // This handles the case where someone does /summarize on a transcription instead of the video
-            if has_audio_content(original_reply) {
-                info!("Found original media through transcription reply chain");
-                original_reply
-            } else {
-                // No audio content found
-                safe_send(bot, message, Some(help_text), None, None).await;
-                return ok_response();
-            }
         } else {
             // No audio content found
             safe_send(bot, message, Some(help_text), None, None).await;
