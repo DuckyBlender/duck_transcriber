@@ -634,8 +634,27 @@ async fn handle_summarization(
     let summary = match summarize::summarize(&translation, method).await {
         Ok(summary) => summary,
         Err(e) => {
-            safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
-            return ok_response();
+            match e {
+                TranscriptionError::RateLimitReached => {
+                    warn!("Rate limit reached for summarization");
+                    // React with sleeping emoji to indicate rate limit
+                    if let Err(err) = bot
+                        .set_message_reaction(reply_context.chat.id, reply_context.id)
+                        .reaction([teloxide::types::ReactionType::Emoji {
+                            emoji: "😴".to_string(),
+                        }])
+                        .await
+                    {
+                        error!("Failed to set reaction: {err:?}");
+                    }
+                    // Return 200 to prevent Telegram from retrying
+                    return ok_response();
+                }
+                _ => {
+                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                    return ok_response();
+                }
+            }
         }
     };
 
