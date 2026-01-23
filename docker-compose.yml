@@ -1,0 +1,13 @@
+services:
+  duck_transcriber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: duck_transcriber
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=sqlite:/app/data/duck_transcriber.db
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
