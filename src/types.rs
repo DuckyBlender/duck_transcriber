@@ -24,8 +24,20 @@ pub enum BotCommand {
 }
 
 pub enum AudioAction {
-    Transcribe(TaskType),
+    Transcribe,
+    Translate,
     Summarize(SummarizeMethod),
+}
+
+impl AudioAction {
+    pub fn task_type(&self) -> TaskType {
+        match self {
+            AudioAction::Transcribe => TaskType::Transcribe,
+            AudioAction::Translate => TaskType::Translate,
+            AudioAction::Summarize(SummarizeMethod::Default) => TaskType::Summarize,
+            AudioAction::Summarize(SummarizeMethod::Caveman) => TaskType::Caveman,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -100,6 +112,8 @@ pub enum TaskType {
     Translate,
     #[strum(to_string = "summarize")]
     Summarize,
+    #[strum(to_string = "caveman")]
+    Caveman,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -153,19 +167,6 @@ pub struct GroqChatResponse {
 #[derive(Debug, Deserialize)]
 pub struct GroqChatChoice {
     pub message: GroqChatMessage,
-}
-
-pub struct DBItem {
-    pub text: String,
-    pub unique_file_id: String, // Using String for compatibility with DynamoDB
-    pub task_type: String,
-    pub expires_at: i64, // Unix timestamp for TTL
-}
-
-pub enum ItemReturnInfo {
-    Text(String),
-    Exists, // Item already exists, but for other task type.
-    None,
 }
 
 #[derive(Debug)]

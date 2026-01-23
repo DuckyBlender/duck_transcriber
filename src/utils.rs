@@ -1,26 +1,14 @@
 use crate::types::TaskType;
-use lambda_http::{Body, Request};
 use log::{info, warn};
-use serde_json::Error;
 use std::env;
 use teloxide::{
     Bot,
     payloads::{SendDocumentSetters, SendMessageSetters},
     prelude::Requester,
     sugar::request::RequestReplyExt,
-    types::{ChatAction, ChatId, InputFile, Message, ParseMode, Update},
+    types::{ChatAction, ChatId, InputFile, Message, ParseMode},
 };
 use tokio::time::{Duration, sleep};
-
-pub async fn parse_webhook(input: Request) -> Result<Update, Error> {
-    let body = input.body();
-    let body_str = match body {
-        Body::Text(text) => text,
-        not => panic!("expected Body::Text(...) got {not:?}"),
-    };
-    let body_json: Update = serde_json::from_str(body_str)?;
-    Ok(body_json)
-}
 
 pub async fn safe_send(
     bot: &Bot,
@@ -40,7 +28,7 @@ pub async fn safe_send(
         let (label, filename) = match task_type {
             Some(TaskType::Transcribe) => ("transcript", "transcript.txt"),
             Some(TaskType::Translate) => ("translation", "translation.txt"),
-            Some(TaskType::Summarize) => ("summary", "summary.txt"),
+            Some(TaskType::Summarize) | Some(TaskType::Caveman) => ("summary", "summary.txt"),
             None => ("content", "content.txt"),
         };
 

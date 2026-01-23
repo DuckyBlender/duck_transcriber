@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO rate_limits (user_id, timestamp) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "64aa75c4a9d70a98f27826784a60d1867bf44794b112d11af2774ea68f39ff3b"
+}

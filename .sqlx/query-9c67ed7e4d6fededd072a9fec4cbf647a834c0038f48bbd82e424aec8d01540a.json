@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM rate_limits WHERE timestamp <= ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "9c67ed7e4d6fededd072a9fec4cbf647a834c0038f48bbd82e424aec8d01540a"
+}

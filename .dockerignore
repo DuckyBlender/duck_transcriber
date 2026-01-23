@@ -1,0 +1,32 @@
+# Build artifacts
+target/
+debug/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files (passed at runtime via --env-file)
+.env
+.env.*
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# CI/CD
+.github/
+
+# Local data
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

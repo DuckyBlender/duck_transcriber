@@ -6,7 +6,8 @@ use mime::Mime;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
 
-pub const TRANSCRIPTION_MODEL: &str = "whisper-large-v3";
+pub const TRANSCRIPTION_MODEL: &str = "whisper-large-v3-turbo";
+pub const TRANSLATION_MODEL: &str = "whisper-large-v3";
 
 pub async fn transcribe(
     task_type: &TaskType,
@@ -78,7 +79,13 @@ async fn transcribe_with_key(
             TranscriptionError::ParseError("Invalid MIME type".to_string())
         })?;
     let form = reqwest::multipart::Form::new()
-        .text("model", TRANSCRIPTION_MODEL.to_string())
+        .text(
+            "model",
+            match task_type {
+                TaskType::Translate => TRANSLATION_MODEL.to_string(),
+                _ => TRANSCRIPTION_MODEL.to_string(),
+            },
+        )
         .text("response_format", "verbose_json")
         .part("file", part);
 
@@ -87,7 +94,9 @@ async fn transcribe_with_key(
     let url_ending = match task_type {
         TaskType::Transcribe => "/audio/transcriptions",
         TaskType::Translate => "/audio/translations",
-        TaskType::Summarize => unreachable!("Summarize should not use Whisper API"),
+        TaskType::Summarize | TaskType::Caveman => {
+            unreachable!("Summarize/Caveman should not use Whisper API")
+        }
     };
 
     let res = client

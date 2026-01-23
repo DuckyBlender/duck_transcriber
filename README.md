@@ -2,15 +2,18 @@
 
 ## Overview
 
-This is a serverless Telegram bot that transcribes voice, audio, and video notes sent to it using the Groq Whisper API. It also stores and retrieves transcriptions using AWS DynamoDB.
+A Telegram bot that transcribes, translates, and summarizes voice messages using the Groq Whisper API. It runs as a standalone application with SQLite caching and per-user rate limiting.
+
+**Note on Serverless History:** The last commit of the bot being serverless is [`1ccb016ccabeb320b0c7637d3c15fc9bdedb2a48`](https://github.com/DuckyBlender/duck_transcriber/commit/1ccb016ccabeb320b0c7637d3c15fc9bdedb2a48).
 
 ## How It Works
 
 1. The bot receives a voice, audio, or video note message from a user.
 2. It downloads the file from Telegram and checks its duration. If the duration is above a specified limit, it sends a warning message to the user and exits.
-3. The bot checks if the transcription already exists in AWS DynamoDB. If it does, the saved transcription is sent back to the user.
-4. If no transcription is found, the bot uploads the original media to the Groq Whisper API for transcription.
-5. The transcription is sent back to the user as a text message and stored in DynamoDB for future reference.
+3. The bot checks if the transcription already exists in SQLite cache. If it does, the cached result is sent back to the user.
+4. If no cached result is found, the bot uploads the original media to the Groq Whisper API for transcription.
+5. The result is sent back to the user as a text message and stored in SQLite for future reference (7 days for transcriptions/translations, 1 day for summaries).
+6. Per-user rate limiting is enforced: 5 voice messages per minute, 30 per hour. When rate-limited, the bot reacts with 🙊 emoji.
 
 ## Supported Commands
 
@@ -19,99 +22,84 @@ This is a serverless Telegram bot that transcribes voice, audio, and video notes
 - `/transcribe`: Transcribes the voice, audio, or video note in the reply message
 - `/translate`: Translates (into English) the voice, audio, or video note in the reply message
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
-- `/caveman`: Transcribes the voice, audio, or video note in the reply message in a "caveman" style
-
-### Developer Commands
-
-Developer commands have been removed.
+- `/caveman`: Summarizes the voice, audio, or video note in a "caveman" style
+- `/privacy`: Shows the privacy policy
 
 ## Technical Details
 
-- The bot is built using the `teloxide` crate for interacting with the Telegram API.
-- The transcription is done using the `reqwest` crate to send a request to the Groq Whisper API.
-- The original file from Telegram is uploaded directly to the Groq Whisper API. FFmpeg has been removed due to memory constraints in the serverless environment, so no conversion step is performed.
-- The bot uses AWS DynamoDB to cache transcriptions and translations, lowering the amount of API calls. The cache is cleared after 7 days.
-- The bot is deployed as a serverless function using AWS Lambda.
+- **Language**: Rust with async/await
+- **Telegram API**: Built using the `teloxide` crate
+- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API
+- **Database**: SQLite with sqlx for fast, type-safe queries
+- **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
+- **Logging**: Dual output to stdout and `bot.log` file using fern
+- **Model**: `whisper-large-v3-turbo` for transcription/translation
+- **Caching**: 
+  - Transcriptions and translations cached for 7 days
+  - Summaries (default & caveman) cached for 1 day
+  - File-based cache uses SQLite with automatic expiration cleanup
+- **Rate Limiting**:
+  - Per-user tracking: 5 messages/minute, 30 messages/hour
+  - Reacts with 🙊 emoji when limit is exceeded
+  - Applies to all audio operations (transcribe, translate, summarize, caveman)
 
-### Error Handling & Reliability
+### GroqCloud Privacy
 
-- **Robust Error Handling**: All errors are properly handled and return HTTP 200 to prevent Telegram webhook retry loops.
-- **Secret Token Validation**: Validates webhook requests using the `X-Telegram-Bot-Api-Secret-Token` header. This is more reliable than IP checking and works correctly behind proxies. Unauthorized requests are silently rejected.
-- **Multi-API-Key Support**: Configure multiple Groq API keys for automatic failover. When a rate limit is hit, the bot automatically tries the next key.
-- **Rate Limit Feedback**: When all API keys are rate limited, the bot reacts with a 😴 emoji on the message to provide visual feedback without spamming the user.
-- **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization (rate limits, network errors, parse errors, API errors).
+**Uses GroqCloud with Global ZDR (Zero Day Retention) active. No data is stored on GroqCloud servers.** Audio files are processed instantly and discarded immediately—nothing is retained on their infrastructure.
 
 ## Environment Variables
 
-- `TELEGRAM_BOT_TOKEN`: the token for the Telegram bot.
-- `TELEGRAM_SECRET_TOKEN`: a secret token for validating webhook requests. You can use any random string (e.g., generate one with `openssl rand -hex 32`). This token must be provided when setting up the webhook.
-- `GROQ_API_KEY`: the API key(s) for the Groq Whisper API. Supports multiple keys separated by commas for automatic failover on rate limits (e.g., `key1,key2,key3`).
-- `DYNAMODB_TABLE`: the name of the DynamoDB table where transcriptions are stored.
-  
+- `TELEGRAM_BOT_TOKEN`: The token for your Telegram bot
+- `GROQ_API_KEY`: Your GroqCloud API key(s). Supports multiple keys separated by commas for automatic failover (e.g., `key1,key2,key3`)
+- `DATABASE_URL`: SQLite database path (default: `sqlite:duck_transcriber.db`)
 
 ## Deployment
 
-Before deploying this bot, ensure you have the following prerequisites installed:
+### Local Development
 
-- **AWS CLI**: Follow the instructions [here](https://aws.amazon.com/cli/) to install the AWS Command Line Interface.
-- **cargo-lambda**: Install `cargo-lambda` (not with cargo, it doesn't support cross compilation) by following the instructions [here](https://www.cargo-lambda.info/guide/getting-started.html).
+1. **Install Rust**: https://rustup.rs/
+2. **Clone the repository**: `git clone https://github.com/DuckyBlender/duck_transcriber.git`
+3. **Create `.env` file**:
+   ```bash
+   TELEGRAM_BOT_TOKEN=your_bot_token
+   GROQ_API_KEY=your_groq_key
+   DATABASE_URL=sqlite:duck_transcriber.db
+   ```
+4. **Run the bot**:
+   ```bash
+   cargo run --release
+   ```
 
-### Build and Deploy
+### Docker
 
-To build:
-```bash
-cargo lambda build --release --arm64
-```
-
-To deploy:
-```bash
-cargo lambda deploy
-```
-
-### Setting Up the Telegram Webhook
-
-After deploying your Lambda function, you need to configure the Telegram webhook to point to your Lambda function URL.
-
-#### Basic Setup
-
-Replace `<YOUR_BOT_TOKEN>` with your Telegram bot token, `<YOUR_LAMBDA_URL>` with your Lambda function URL, and `<YOUR_SECRET_TOKEN>` with the secret token you set in the `TELEGRAM_SECRET_TOKEN` environment variable:
+Build and run the bot in Docker with an optimized multi-stage build:
 
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "<YOUR_LAMBDA_URL>",
-    "secret_token": "<YOUR_SECRET_TOKEN>",
-    "allowed_updates": ["message"]
-  }'
+docker build -t duck_transcriber .
+docker run -d \
+  --name duck_transcriber \
+  --env-file .env \
+  -v ./data:/app/data \
+  --restart unless-stopped \
+  duck_transcriber
 ```
 
-**Important**: 
-- The `secret_token` parameter must match the `TELEGRAM_SECRET_TOKEN` environment variable you configured in your Lambda function. This validates that webhook requests are coming from Telegram.
-- The `allowed_updates` parameter can be set to `["message"]` to ensure the bot only receives message updates and nothing else (like inline queries, polls, etc.). This will reduce Lambda costs.
+**Important:** The `-v ./data:/app/data` volume mount ensures the SQLite database persists between container restarts. Make sure you have a `.env` file with the required environment variables (see Local Development section).
 
-#### Troubleshooting Setup
+The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in faster rebuilds.
 
-If the bot is stuck in a loop or something goes wrong, you can reset the webhook and drop all pending updates:
-
+To view logs:
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "<YOUR_LAMBDA_URL>",
-    "secret_token": "<YOUR_SECRET_TOKEN>",
-    "allowed_updates": ["message"],
-    "drop_pending_updates": true
-  }'
+docker logs -f duck_transcriber
 ```
 
-### FFmpeg
+## Error Handling & Reliability
 
-FFmpeg has been removed due to memory constraints in the serverless environment and is no longer required.
-
-### AWS Lambda Permissions
-
-Ensure that your AWS Lambda function has the necessary permissions to access DynamoDB. You will need to attach a policy that grants the Lambda function read and write permissions to the DynamoDB table. This can be done by attaching the `AWSLambdaDynamoDBExecutionRole` managed policy or by creating a custom policy with the necessary permissions.
+- **Robust Error Handling**: All errors are properly handled and logged
+- **Rate Limit Fallback**: When rate limited, reacts with 🙊 emoji instead of failing
+- **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
+- **Automatic Retry**: Configurable API key rotation for automatic failover (if multiple keys provided)
+- **Logging**: All events logged to both stdout and `bot.log` file with timestamps
 
 ## License
 
