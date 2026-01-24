@@ -224,6 +224,47 @@ async fn handle_command(
             )
             .await;
         }
+        BotCommand::Ratelimit => {
+            let rate_limit_info = format!(
+                "<b>📊 Rate Limit Info</b>\n\n\
+                • <b>Per Minute:</b> {} requests\n\
+                • <b>Per Hour:</b> {} requests\n\n\
+                The rate limit is applied per user to ensure fair usage. These limits are extremely generous and are only here to prevent abuse.",
+                RATE_LIMIT_PER_MINUTE,
+                RATE_LIMIT_PER_HOUR
+            );
+            safe_send(
+                bot,
+                message,
+                Some(&rate_limit_info),
+                Some(ParseMode::Html),
+                None,
+            )
+            .await;
+        }
+        BotCommand::Donate => {
+            let donation_message = "<b>Support duck_transcriber_bot</b>\n\n\
+                If you would like to help cover API costs, you can donate!\n\n\
+                <b>Bitcoin (BTC)</b>\n\
+                <code>bc1q3dqnaygpaqkwm20hjq73g3kcc534cnt47wjlmu</code>\n\n\
+                <b>Bitcoin Lightning</b>\n\
+                <code>duckyblender@strike.me</code>\n\
+                <b>Ethereum (ETH)</b> (or any ERC20 token)\n\
+                <code>0x87d03a9DADd7927c1f058725307a1645BC406195</code>\n\n\
+                <b>Nano (XNO)</b>\n\
+                <code>nano_3ociqkh6taqqu7q7h99oiyuasnkugm7bss87r1r4eph7dym3tmp3cebtosc5</code>\n\n\
+                <b>Monero (XMR)</b>\n\
+                <code>84SdAF7JmMfQS3P1sSKasJHo8sQPjR3Xp58Vp1QWG4vMYdW26iZw6XuCMqL5FbtSQnUSKsGu6WtvXNMDEkwBtrE2VgKtNSK</code>\n\n\
+                Thank you for your support! 🦆";
+            safe_send(
+                bot,
+                message,
+                Some(donation_message),
+                Some(ParseMode::Html),
+                None,
+            )
+            .await;
+        }
     }
 }
 
