@@ -41,7 +41,8 @@ The bot can be added to groups to automatically transcribe voice messages. You c
   - File-based cache uses SQLite with automatic expiration cleanup
 - **Rate Limiting**:
   - Per-user tracking: 5 messages/minute, 30 messages/hour
-  - Reacts with 🙊 emoji when limit is exceeded
+  - Reacts with 🙊 emoji when per-user limit is exceeded
+  - Reacts with 😴 emoji when GroqCloud rate limits are reached
   - Applies to all audio operations (transcribe, translate, summarize, caveman)
 
 ### GroqCloud Privacy
@@ -84,7 +85,7 @@ The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in 
 ## Error Handling & Reliability
 
 - **Robust Error Handling**: All errors are properly handled and logged
-- **Rate Limit Fallback**: When rate limited, reacts with 🙊 emoji instead of failing
+- **Rate Limit Fallback**: Uses 🙊 for per-user limits and 😴 for GroqCloud rate limits instead of failing
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 - **Automatic Retry**: Configurable API key rotation for automatic failover (if multiple keys provided)
 

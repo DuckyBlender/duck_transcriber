@@ -26,6 +26,8 @@ const RATE_LIMIT_PER_MINUTE: u32 = 5;
 const RATE_LIMIT_PER_HOUR: u32 = 30;
 const MAX_DURATION: u32 = 30;
 const MAX_FILE_SIZE: u32 = 20;
+const USER_RATE_LIMIT_REACTION: &str = "🙊";
+const GROQ_RATE_LIMIT_REACTION: &str = "😴";
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
 
@@ -355,7 +357,7 @@ async fn handle_audio_message(
             if let Err(err) = bot
                 .set_message_reaction(reply_context.chat.id, reply_context.id)
                 .reaction([ReactionType::Emoji {
-                    emoji: "🙊".to_string(),
+                    emoji: USER_RATE_LIMIT_REACTION.to_string(),
                 }])
                 .await
             {
@@ -427,7 +429,7 @@ async fn handle_audio_message(
                 if let Err(err) = bot
                     .set_message_reaction(reply_context.chat.id, reply_context.id)
                     .reaction([ReactionType::Emoji {
-                        emoji: "🙊".to_string(),
+                        emoji: GROQ_RATE_LIMIT_REACTION.to_string(),
                     }])
                     .await
                 {
@@ -505,7 +507,7 @@ async fn handle_summarization(
             if let Err(err) = bot
                 .set_message_reaction(reply_context.chat.id, reply_context.id)
                 .reaction([ReactionType::Emoji {
-                    emoji: "🙊".to_string(),
+                    emoji: USER_RATE_LIMIT_REACTION.to_string(),
                 }])
                 .await
             {
@@ -610,10 +612,26 @@ async fn handle_summarization(
                     .await;
                     return;
                 }
-                Err(e) => {
-                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
-                    return;
-                }
+                Err(e) => match e {
+                    TranscriptionError::RateLimitReached => {
+                        warn!("Rate limit reached for translation");
+                        if let Err(err) = bot
+                            .set_message_reaction(reply_context.chat.id, reply_context.id)
+                            .reaction([ReactionType::Emoji {
+                                emoji: GROQ_RATE_LIMIT_REACTION.to_string(),
+                            }])
+                            .await
+                        {
+                            error!("Failed to set reaction: {err:?}");
+                        }
+                        return;
+                    }
+                    _ => {
+                        safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None)
+                            .await;
+                        return;
+                    }
+                },
             }
         }
     };
@@ -626,7 +644,7 @@ async fn handle_summarization(
                 if let Err(err) = bot
                     .set_message_reaction(reply_context.chat.id, reply_context.id)
                     .reaction([ReactionType::Emoji {
-                        emoji: "🙊".to_string(),
+                        emoji: GROQ_RATE_LIMIT_REACTION.to_string(),
                     }])
                     .await
                 {
