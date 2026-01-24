@@ -2,18 +2,17 @@
 
 ## Overview
 
-A Telegram bot that transcribes, translates, and summarizes voice messages using the Groq Whisper API. It runs as a standalone application with SQLite caching and per-user rate limiting.
+A Telegram bot that transcribes, translates, and summarizes voice messages using the Groq Whisper API.
 
 **Note on Serverless History:** The last commit of the bot being serverless is [`1ccb016ccabeb320b0c7637d3c15fc9bdedb2a48`](https://github.com/DuckyBlender/duck_transcriber/commit/1ccb016ccabeb320b0c7637d3c15fc9bdedb2a48).
 
 ## How It Works
 
-1. The bot receives a voice, audio, or video note message from a user.
-2. It downloads the file from Telegram and checks its duration. If the duration is above a specified limit, it sends a warning message to the user and exits.
-3. The bot checks if the transcription already exists in SQLite cache. If it does, the cached result is sent back to the user.
-4. If no cached result is found, the bot uploads the original media to the Groq Whisper API for transcription.
-5. The result is sent back to the user as a text message and stored in SQLite for future reference (7 days for transcriptions/translations, 1 day for summaries).
-6. Per-user rate limiting is enforced: 5 voice messages per minute, 30 per hour. When rate-limited, the bot reacts with 🙊 emoji.
+1. Send a voice, audio, or video note to the bot
+2. The bot transcribes, translates, or summarizes it using the Groq Whisper API
+3. Results are sent back instantly and cached for future use
+
+The bot can be added to groups to automatically transcribe voice messages. You can manually transcribe videos and audio files by replying to them with the bot commands. In DMs, the bot will automatically transcribe most media sent to it.
 
 ## Supported Commands
 
@@ -24,6 +23,8 @@ A Telegram bot that transcribes, translates, and summarizes voice messages using
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
 - `/caveman`: Summarizes the voice, audio, or video note in a "caveman" style
 - `/privacy`: Shows the privacy policy
+- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information
+- `/donate`: Shows cryptocurrency donation addresses to support the project
 
 ## Technical Details
 
@@ -33,7 +34,7 @@ A Telegram bot that transcribes, translates, and summarizes voice messages using
 - **Database**: SQLite with sqlx for fast, type-safe queries
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
-- **Model**: `whisper-large-v3-turbo` for transcription/translation
+- **Model**: `whisper-large-v3-turbo` for transcription and `whisper-large-v3` for translation
 - **Caching**: 
   - Transcriptions and translations cached for 7 days
   - Summaries (default & caveman) cached for 1 day
@@ -45,7 +46,7 @@ A Telegram bot that transcribes, translates, and summarizes voice messages using
 
 ### GroqCloud Privacy
 
-**Uses GroqCloud with Global ZDR (Zero Day Retention) active. No data is stored on GroqCloud servers.** Audio files are processed instantly and discarded immediately—nothing is retained on their infrastructure.
+**This bot uses GroqCloud with Global ZDR (Zero Day Retention) enabled.** No data is stored on GroqCloud servers. Audio files are processed instantly and discarded immediately—nothing is retained on their infrastructure.
 
 ## Environment Variables
 
@@ -75,23 +76,10 @@ A Telegram bot that transcribes, translates, and summarizes voice messages using
 Build and run the bot in Docker with an optimized multi-stage build:
 
 ```bash
-docker build -t duck_transcriber .
-docker run -d \
-  --name duck_transcriber \
-  --env-file .env \
-  -v ./data:/app/data \
-  --restart unless-stopped \
-  duck_transcriber
+docker compose up -d
 ```
-
-**Important:** The `-v ./data:/app/data` volume mount ensures the SQLite database persists between container restarts. Make sure you have a `.env` file with the required environment variables (see Local Development section).
 
 The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in faster rebuilds.
-
-To view logs:
-```bash
-docker logs -f duck_transcriber
-```
 
 ## Error Handling & Reliability
 
@@ -99,7 +87,18 @@ docker logs -f duck_transcriber
 - **Rate Limit Fallback**: When rate limited, reacts with 🙊 emoji instead of failing
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 - **Automatic Retry**: Configurable API key rotation for automatic failover (if multiple keys provided)
-- **Logging**: All events logged to both stdout and `bot.log` file with timestamps
+
+## Support & Donations
+
+If you find this bot useful and would like to help cover API costs, donations are greatly appreciated! You can donate using various cryptocurrencies:
+
+- **Bitcoin**: `bc1q3dqnaygpaqkwm20hjq73g3kcc534cnt47wjlmu`
+- **Bitcoin Lightning**: `duckyblender@strike.me`
+- **Ethereum (or any ERC20 token)**: `0x87d03a9DADd7927c1f058725307a1645BC406195`
+- **Nano**: `nano_3ociqkh6taqqu7q7h99oiyuasnkugm7bss87r1r4eph7dym3tmp3cebtosc5`
+- **Monero**: `84SdAF7JmMfQS3P1sSKasJHo8sQPjR3Xp58Vp1QWG4vMYdW26iZw6XuCMqL5FbtSQnUSKsGu6WtvXNMDEkwBtrE2VgKtNSK`
+
+You can also use the `/donate` command in the bot to view these addresses directly.
 
 ## License
 
