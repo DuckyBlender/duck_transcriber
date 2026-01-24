@@ -21,8 +21,8 @@ pub enum BotCommand {
     Caveman,
     #[command(description = "show privacy policy")]
     Privacy,
-    #[command(description = "show current rate limit", alias = "ratelimits")]
-    Ratelimit,
+    #[command(description = "show current rate limit", aliases = ["ratelimits", "ratelimit"])]
+    Limits,
     #[command(description = "show donation addresses")]
     Donate,
 }
