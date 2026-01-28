@@ -85,7 +85,8 @@ impl Database {
         let task_type_str = match task_type {
             TaskType::Transcribe => "transcribe",
             TaskType::Translate => "translate",
-            TaskType::Summarize | TaskType::Caveman => "summarize",
+            TaskType::Summarize => "summarize",
+            TaskType::Caveman => "caveman",
         };
 
         let row = sqlx::query(&format!(
@@ -119,7 +120,8 @@ impl Database {
         let task_type_str = match task_type {
             TaskType::Transcribe => "transcribe",
             TaskType::Translate => "translate",
-            TaskType::Summarize | TaskType::Caveman => "summarize",
+            TaskType::Summarize => "summarize",
+            TaskType::Caveman => "caveman",
         };
 
         let result = sqlx::query(&format!(
