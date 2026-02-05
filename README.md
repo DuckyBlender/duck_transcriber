@@ -19,11 +19,11 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 - `/start`: Initializes the bot and provides a welcome message
 - `/help`: Provides information on how to use the bot and its features
 - `/transcribe`: Transcribes the voice, audio, or video note in the reply message
-- `/translate`: Translates (into English) the voice, audio, or video note in the reply message
+- `/translate` (aliases: `english`, `en`): Translates (into English) the voice, audio, or video note in the reply message
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
 - `/caveman`: Summarizes the voice, audio, or video note in a "caveman" style
 - `/privacy`: Shows the privacy policy
-- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information
+- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information (5 messages per minute, 30 messages per hour)
 - `/donate`: Shows cryptocurrency donation addresses to support the project
 
 ## Technical Details
@@ -34,13 +34,13 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 - **Database**: SQLite with sqlx for fast, type-safe queries
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
-- **Model**: `whisper-large-v3-turbo` for transcription and `whisper-large-v3` for translation
+- **Model**: `whisper-large-v3-turbo` for transcription and `whisper-large-v3` for translation, `moonshotai/kimi-k2-instruct-0905` for summarization
 - **Caching**: 
   - Transcriptions and translations cached for 7 days
   - Summaries (default & caveman) cached for 1 day
   - File-based cache uses SQLite with automatic expiration cleanup
 - **Rate Limiting**:
-  - Per-user tracking: 5 messages/minute, 30 messages/hour
+  - Per-user tracking: 5 messages per minute, 30 messages per hour
   - Reacts with 🙊 emoji when per-user limit is exceeded
   - Reacts with 😴 emoji when GroqCloud rate limits are reached
   - Applies to all audio operations (transcribe, translate, summarize, caveman)
