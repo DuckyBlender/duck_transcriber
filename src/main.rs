@@ -215,7 +215,7 @@ async fn handle_command(
                 • <b>GroqCloud Privacy:</b> Uses Global ZDR (Zero Day Retention) active. No data is stored on GroqCloud servers.",
                 pretty_model_name(transcribe::TRANSCRIPTION_MODEL),
                 pretty_model_name(transcribe::TRANSLATION_MODEL),
-                pretty_model_name(summarize::SUMMARIZATION_MODEL)
+                pretty_model_name(summarize::SUMMARIZATION_MODELS[0])
             );
             safe_send(
                 bot,

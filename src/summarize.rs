@@ -7,7 +7,7 @@ use log::{error, info, warn};
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
 
-pub const SUMMARIZATION_MODEL: &str = "moonshotai/kimi-k2-instruct-0905";
+pub const SUMMARIZATION_MODELS: [&str; 2] = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
 
 pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, TranscriptionError> {
     let api_keys = utils::get_api_keys();
@@ -19,22 +19,30 @@ pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, Tr
         ));
     }
 
-    // Try each API key until one succeeds
+    // Try each model, falling back on rate limit
     let mut last_error = None;
+    let mut model = SUMMARIZATION_MODELS[0];
     for (attempt, api_key) in api_keys.iter().enumerate() {
         info!(
-            "Attempting summarization with API key {} of {}",
+            "Attempting summarization with model {} (key {} of {})",
+            model,
             attempt + 1,
             api_keys.len()
         );
 
-        match summarize_with_key(text, method, api_key).await {
+        match summarize_with_key(text, method, api_key, model).await {
             Ok(result) => return Ok(result),
             Err(TranscriptionError::RateLimitReached) => {
                 warn!(
-                    "Rate limit reached with key {}, trying next key",
+                    "Rate limit reached with model {}, key {}",
+                    model,
                     attempt + 1
                 );
+                // Fall back to next model
+                if let Some(next_model) = SUMMARIZATION_MODELS.iter().find(|m| *m != &model) {
+                    model = *next_model;
+                    info!("Switching to fallback model {}", model);
+                }
                 last_error = Some(TranscriptionError::RateLimitReached);
                 continue;
             }
@@ -54,6 +62,7 @@ async fn summarize_with_key(
     text: &str,
     method: SummarizeMethod,
     api_key: &str,
+    model: &str,
 ) -> Result<String, TranscriptionError> {
     let mut headers = HeaderMap::new();
 
@@ -79,7 +88,7 @@ async fn summarize_with_key(
     };
 
     let request = GroqChatRequest {
-        model: SUMMARIZATION_MODEL.to_string(),
+        model: model.to_string(),
         messages: vec![
             GroqChatMessage {
                 role: "system".to_string(),
