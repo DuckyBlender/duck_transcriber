@@ -10,6 +10,8 @@ A Telegram bot that transcribes, translates, and summarizes voice messages using
 
 1. Send a voice, audio, or video note to the bot
 2. The bot transcribes, translates, or summarizes it using the Groq Whisper API
+   and falls back to a local whisper.cpp server only when all GroqCloud keys are
+   rate limited
 3. Results are sent back instantly and cached for future use
 
 The bot can be added to groups to automatically transcribe voice messages. You can manually transcribe videos and audio files by replying to them with the bot commands. In DMs, the bot will automatically transcribe most media sent to it.
@@ -30,11 +32,11 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 
 - **Language**: Rust with async/await
 - **Telegram API**: Built using the `teloxide` crate
-- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API
+- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API, with a local whisper.cpp fallback on GroqCloud rate limits
 - **Database**: SQLite with sqlx for fast, type-safe queries
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
-- **Model**: `whisper-large-v3-turbo` for transcription and `whisper-large-v3` for translation, `moonshotai/kimi-k2-instruct-0905` for summarization
+- **Model**: `whisper-large-v3-turbo` for transcription, `whisper-large-v3` for GroqCloud translation, local whisper.cpp `large-v3-turbo` for rate-limit fallback, and `moonshotai/kimi-k2-instruct-0905` for summarization
 - **Caching**: 
   - Transcriptions and translations cached for 7 days
   - Summaries (default & caveman) cached for 1 day
@@ -42,7 +44,8 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 - **Rate Limiting**:
   - Per-user tracking: 5 messages per minute, 30 messages per hour
   - Reacts with 🙊 emoji when per-user limit is exceeded
-  - Reacts with 😴 emoji when GroqCloud rate limits are reached
+  - Falls back to local whisper.cpp when GroqCloud transcription/translation rate limits are reached
+  - Reacts with 😴 emoji when GroqCloud summarization rate limits are reached
   - Applies to all audio operations (transcribe, translate, summarize, caveman)
 
 ### GroqCloud Privacy
@@ -54,6 +57,7 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 - `TELEGRAM_BOT_TOKEN`: The token for your Telegram bot
 - `GROQ_API_KEY`: Your GroqCloud API key(s). Supports multiple keys separated by commas for automatic failover (e.g., `key1,key2,key3`)
 - `DATABASE_URL`: SQLite database path (default: `sqlite:duck_transcriber.db`)
+- `WHISPER_LOCAL_URL`: Local whisper.cpp fallback endpoint (default: `http://host.docker.internal:8080/inference`)
 
 ## Deployment
 
@@ -74,18 +78,38 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 
 ### Docker
 
-Build and run the bot in Docker with an optimized multi-stage build:
+Build and run the bot in Docker with an optimized multi-stage build. The
+whisper.cpp fallback is not part of Docker or compose; run it separately on the
+host before starting the bot:
+
+```bash
+cd ../whisper.cpp
+make -j large-v3-turbo
+./build/bin/whisper-server \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --model models/ggml-large-v3-turbo.bin \
+  --convert \
+  --language auto
+```
+
+Then start duck_transcriber:
 
 ```bash
 docker compose up -d
 ```
+
+The compose file maps `host.docker.internal` to the host gateway so the
+container can call the host whisper.cpp server at
+`http://host.docker.internal:8080/inference`. The local server is used only after
+all configured GroqCloud API keys return rate limits.
 
 The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in faster rebuilds.
 
 ## Error Handling & Reliability
 
 - **Robust Error Handling**: All errors are properly handled and logged
-- **Rate Limit Fallback**: Uses 🙊 for per-user limits and 😴 for GroqCloud rate limits instead of failing
+- **Rate Limit Fallback**: Uses 🙊 for per-user limits, falls back to local whisper.cpp for GroqCloud transcription/translation rate limits, and uses 😴 when summarization rate limits cannot be served locally
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 - **Automatic Retry**: Configurable API key rotation for automatic failover (if multiple keys provided)
 

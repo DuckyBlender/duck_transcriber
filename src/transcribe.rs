@@ -5,15 +5,25 @@ use log::{error, info, warn};
 use mime::Mime;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
+use serde::Deserialize;
+use std::env;
 
 pub const TRANSCRIPTION_MODEL: &str = "whisper-large-v3-turbo";
 pub const TRANSLATION_MODEL: &str = "whisper-large-v3";
+pub const LOCAL_WHISPER_MODEL: &str = "large-v3-turbo";
+const DEFAULT_LOCAL_WHISPER_URL: &str = "http://host.docker.internal:8080/inference";
 
 pub async fn transcribe(
     task_type: &TaskType,
     buffer: Vec<u8>,
     mime: Mime,
+    force_local_whisper: bool,
 ) -> Result<Option<String>, TranscriptionError> {
+    if force_local_whisper {
+        info!("Local whisper.cpp was forced for this request");
+        return transcribe_with_local_whisper(task_type, buffer, mime).await;
+    }
+
     let api_keys = utils::get_api_keys();
 
     if api_keys.is_empty() {
@@ -25,6 +35,7 @@ pub async fn transcribe(
 
     // Try each API key until one succeeds
     let mut last_error = None;
+    let mut all_keys_rate_limited = true;
     for (attempt, api_key) in api_keys.iter().enumerate() {
         info!(
             "Attempting transcription with API key {} of {}",
@@ -44,10 +55,16 @@ pub async fn transcribe(
             }
             Err(e) => {
                 error!("Error with key {}: {}", attempt + 1, e);
+                all_keys_rate_limited = false;
                 last_error = Some(e);
                 break;
             }
         }
+    }
+
+    if all_keys_rate_limited {
+        warn!("All Groq API keys are rate limited; falling back to local whisper.cpp");
+        return transcribe_with_local_whisper(task_type, buffer, mime).await;
     }
 
     Err(last_error
@@ -155,4 +172,101 @@ async fn transcribe_with_key(
     }
 
     Ok(Some(output_text))
+}
+
+async fn transcribe_with_local_whisper(
+    task_type: &TaskType,
+    buffer: Vec<u8>,
+    mime: Mime,
+) -> Result<Option<String>, TranscriptionError> {
+    let url =
+        env::var("WHISPER_LOCAL_URL").unwrap_or_else(|_| DEFAULT_LOCAL_WHISPER_URL.to_string());
+    info!(
+        "Transcribing with local whisper.cpp model {} at {}",
+        LOCAL_WHISPER_MODEL, url
+    );
+
+    let part = reqwest::multipart::Part::bytes(buffer)
+        .file_name(format!("audio.{}", mime.subtype()))
+        .mime_str(mime.as_ref())
+        .map_err(|e| {
+            error!("Failed to parse MIME type for local whisper.cpp: {e}");
+            TranscriptionError::ParseError("Invalid MIME type".to_string())
+        })?;
+
+    let mut form = reqwest::multipart::Form::new()
+        .text("response_format", "verbose_json")
+        .text("temperature", "0.0")
+        .text("temperature_inc", "0.2")
+        .text("language", "auto")
+        .text("no_language_probabilities", "true")
+        .part("file", part);
+
+    if matches!(task_type, TaskType::Translate) {
+        form = form.text("translate", "true");
+    }
+
+    let res = reqwest::Client::new()
+        .post(url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|err| {
+            error!("Failed to send request to local whisper.cpp: {err}");
+            TranscriptionError::NetworkError(format!(
+                "Failed to send request to local whisper.cpp: {err}"
+            ))
+        })?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let body = res
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unreadable body>".to_string());
+        error!("Local whisper.cpp returned {status}: {body}");
+        return Err(TranscriptionError::ApiError(format!(
+            "Local whisper.cpp error: {status}"
+        )));
+    }
+
+    let res = res.json::<LocalWhisperResponse>().await.map_err(|err| {
+        error!("Failed to parse local whisper.cpp response: {err}");
+        TranscriptionError::ParseError("Failed to parse local whisper.cpp response".to_string())
+    })?;
+
+    let mut output_text = String::new();
+
+    if res.segments.is_empty() {
+        output_text = res.text;
+    } else {
+        for segment in res.segments {
+            if segment.no_speech_prob.unwrap_or(0.0) > 0.6
+                && segment.avg_logprob.unwrap_or(0.0) < -0.4
+            {
+                continue;
+            }
+            output_text += &segment.text;
+        }
+    }
+
+    if output_text.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(output_text))
+}
+
+#[derive(Debug, Deserialize)]
+struct LocalWhisperResponse {
+    text: String,
+    #[serde(default)]
+    segments: Vec<LocalWhisperSegment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LocalWhisperSegment {
+    text: String,
+    avg_logprob: Option<f64>,
+    no_speech_prob: Option<f64>,
 }
