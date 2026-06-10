@@ -27,10 +27,8 @@ pub async fn transcribe(
     let api_keys = utils::get_api_keys();
 
     if api_keys.is_empty() {
-        error!("No API keys configured");
-        return Err(TranscriptionError::ApiError(
-            "API key not configured".to_string(),
-        ));
+        warn!("No Groq API keys configured; using local whisper.cpp");
+        return transcribe_with_local_whisper(task_type, buffer, mime).await;
     }
 
     // Try each API key until one succeeds

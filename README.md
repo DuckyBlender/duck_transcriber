@@ -11,8 +11,8 @@ A Telegram bot that transcribes, translates, and summarizes voice messages using
 1. Send a voice, audio, or video note to the bot
 2. The bot transcribes or translates audio using GroqCloud Whisper, summarizes
    translated text using GroqCloud chat completions, and falls back to a local
-   whisper.cpp server only when all GroqCloud transcription/translation keys are
-   rate limited
+   whisper.cpp server when GroqCloud transcription/translation keys are missing
+   or rate limited
 3. Results are sent back instantly and cached for future use
 
 The bot can be added to groups to automatically transcribe voice messages. You can manually transcribe videos and audio files by replying to them with the bot commands. In DMs, the bot will automatically transcribe most media sent to it.
@@ -26,14 +26,14 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
 - `/caveman`: Summarizes the voice, audio, or video note in a "caveman" style
 - `/privacy`: Shows the privacy policy
-- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information (5 messages per minute, 30 messages per hour)
+- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information (25 messages per minute, 150 messages per hour)
 - `/donate`: Shows cryptocurrency donation addresses to support the project
 
 ## Technical Details
 
 - **Language**: Rust with async/await
 - **Telegram API**: Built using the `teloxide` crate
-- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API, with a local whisper.cpp fallback on GroqCloud transcription/translation rate limits
+- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API, with a local whisper.cpp fallback when GroqCloud transcription/translation keys are missing or rate limited
 - **Summarization API**: Uses GroqCloud chat completions with model fallback across configured API keys
 - **Database**: SQLite with sqlx for fast, type-safe queries
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
@@ -48,10 +48,10 @@ The bot can be added to groups to automatically transcribe voice messages. You c
   - Summaries (default and caveman) cached for 1 day
   - SQLite cache uses per-result expiration timestamps with automatic cleanup
 - **Rate Limiting**:
-  - Per-user tracking: 5 messages per minute, 30 messages per hour
+  - Per-user tracking: 25 messages per minute, 150 messages per hour
   - Temporary per-user rate-limit records are cleaned up after 2 hours
   - Reacts with 🙊 emoji when per-user limit is exceeded
-  - Falls back to local whisper.cpp when GroqCloud transcription/translation rate limits are reached
+  - Falls back to local whisper.cpp when GroqCloud transcription/translation keys are missing or rate limited
   - Reacts with 😴 emoji when GroqCloud summarization rate limits are reached
   - Applies to all audio operations (transcribe, translate, summarize, caveman)
 
@@ -62,7 +62,7 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 ## Environment Variables
 
 - `TELEGRAM_BOT_TOKEN`: The token for your Telegram bot
-- `GROQ_API_KEY`: Your GroqCloud API key(s). Supports multiple keys separated by commas for automatic failover (e.g., `key1,key2,key3`)
+- `GROQ_API_KEY`: Optional for `/transcribe` and `/translate` when local whisper.cpp is available; required for `/summarize` and `/caveman`. Supports multiple keys separated by commas for automatic failover (e.g., `key1,key2,key3`)
 - `DATABASE_URL`: SQLite database path (default: `sqlite:duck_transcriber.db`)
 - `WHISPER_LOCAL_URL`: Local whisper.cpp fallback endpoint (default: `http://host.docker.internal:8080/inference`)
 
@@ -75,6 +75,8 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 3. **Create `.env` file**:
    ```bash
    TELEGRAM_BOT_TOKEN=your_bot_token
+   # Optional for /transcribe and /translate when WHISPER_LOCAL_URL is available.
+   # Required for /summarize and /caveman.
    GROQ_API_KEY=your_groq_key
    DATABASE_URL=sqlite:duck_transcriber.db
    ```
@@ -108,15 +110,16 @@ docker compose up -d
 
 The compose file maps `host.docker.internal` to the host gateway so the
 container can call the host whisper.cpp server at
-`http://host.docker.internal:8080/inference`. The local server is used only after
-all configured GroqCloud API keys return rate limits.
+`http://host.docker.internal:8080/inference`. The local server is used when no
+GroqCloud API keys are configured for transcription/translation, or after all
+configured GroqCloud API keys return rate limits.
 
 The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in faster rebuilds.
 
 ## Error Handling & Reliability
 
 - **Robust Error Handling**: All errors are properly handled and logged
-- **Rate Limit Fallback**: Uses 🙊 for per-user limits, falls back to local whisper.cpp for GroqCloud transcription/translation rate limits, and uses 😴 when summarization rate limits cannot be served locally
+- **Rate Limit Fallback**: Uses 🙊 for per-user limits, falls back to local whisper.cpp when GroqCloud transcription/translation keys are missing or rate limited, and uses 😴 when summarization rate limits cannot be served locally
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 - **Automatic Retry**: Configurable API key rotation for transcription/translation failover, plus model and key fallback for summarization
 

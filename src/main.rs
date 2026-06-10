@@ -23,8 +23,8 @@ mod utils;
 
 use database::Database;
 
-const RATE_LIMIT_PER_MINUTE: u32 = 5;
-const RATE_LIMIT_PER_HOUR: u32 = 30;
+const RATE_LIMIT_PER_MINUTE: u32 = 25;
+const RATE_LIMIT_PER_HOUR: u32 = 150;
 const MAX_DURATION: u32 = 30;
 const MAX_FILE_SIZE: u32 = 20;
 const USER_RATE_LIMIT_REACTION: &str = "🙊";
@@ -42,7 +42,9 @@ async fn main() {
 
     let api_keys = utils::get_api_keys();
     if api_keys.is_empty() {
-        panic!("No API keys configured. Set GROQ_API_KEY environment variable.");
+        warn!(
+            "No Groq API keys configured. Transcription and translation will use local whisper.cpp."
+        );
     }
 
     let bot = Bot::new(env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set!"));
