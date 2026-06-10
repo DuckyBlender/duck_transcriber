@@ -154,17 +154,12 @@ async fn transcribe_with_key(
         TranscriptionError::ParseError("Failed to parse API response".to_string())
     })?;
 
-    let mut output_text = String::new();
-
-    // Extract all of the segments.
-    for segment in res.segments {
-        // If the no_speech_prob value is higher than 1.0 and the avg_logprob is below -1, consider this segment silent.
-        // These values are fine-tuned from a lot of testing. They work way better than the default values. No values are perfect, and there are still some hallucinations.
-        if segment.no_speech_prob > 0.6 && segment.avg_logprob < -0.4 {
-            continue;
-        }
-        output_text += &segment.text;
-    }
+    let output_text = res
+        .segments
+        .into_iter()
+        .filter(|segment| !is_silent_segment(segment.no_speech_prob, segment.avg_logprob))
+        .map(|segment| segment.text)
+        .collect::<String>();
 
     // If the output text is empty, return <no text>
     if output_text.is_empty() {
@@ -235,26 +230,31 @@ async fn transcribe_with_local_whisper(
         TranscriptionError::ParseError("Failed to parse local whisper.cpp response".to_string())
     })?;
 
-    let mut output_text = String::new();
-
-    if res.segments.is_empty() {
-        output_text = res.text;
+    let output_text = if res.segments.is_empty() {
+        res.text
     } else {
-        for segment in res.segments {
-            if segment.no_speech_prob.unwrap_or(0.0) > 0.6
-                && segment.avg_logprob.unwrap_or(0.0) < -0.4
-            {
-                continue;
-            }
-            output_text += &segment.text;
-        }
-    }
+        res.segments
+            .into_iter()
+            .filter(|segment| {
+                !is_silent_segment(
+                    segment.no_speech_prob.unwrap_or(0.0),
+                    segment.avg_logprob.unwrap_or(0.0),
+                )
+            })
+            .map(|segment| segment.text)
+            .collect()
+    };
 
     if output_text.is_empty() {
         return Ok(None);
     }
 
     Ok(Some(output_text))
+}
+
+fn is_silent_segment(no_speech_prob: f64, avg_logprob: f64) -> bool {
+    // Tuned from production testing to reduce hallucinated silence.
+    no_speech_prob > 0.6 && avg_logprob < -0.4
 }
 
 #[derive(Debug, Deserialize)]

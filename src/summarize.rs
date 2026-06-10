@@ -19,37 +19,36 @@ pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, Tr
         ));
     }
 
-    // Try each model, falling back on rate limit
     let mut last_error = None;
-    let mut model = SUMMARIZATION_MODELS[0];
-    for (attempt, api_key) in api_keys.iter().enumerate() {
-        info!(
-            "Attempting summarization with model {} (key {} of {})",
-            model,
-            attempt + 1,
-            api_keys.len()
-        );
+    for (key_index, api_key) in api_keys.iter().enumerate() {
+        for model in SUMMARIZATION_MODELS {
+            info!(
+                "Attempting summarization with model {} (key {} of {})",
+                model,
+                key_index + 1,
+                api_keys.len()
+            );
 
-        match summarize_with_key(text, method, api_key, model).await {
-            Ok(result) => return Ok(result),
-            Err(TranscriptionError::RateLimitReached) => {
-                warn!(
-                    "Rate limit reached with model {}, key {}",
-                    model,
-                    attempt + 1
-                );
-                // Fall back to next model
-                if let Some(next_model) = SUMMARIZATION_MODELS.iter().find(|m| *m != &model) {
-                    model = *next_model;
-                    info!("Switching to fallback model {}", model);
+            match summarize_with_key(text, method, api_key, model).await {
+                Ok(result) => return Ok(result),
+                Err(TranscriptionError::RateLimitReached) => {
+                    warn!(
+                        "Rate limit reached with model {}, key {}",
+                        model,
+                        key_index + 1
+                    );
+                    last_error = Some(TranscriptionError::RateLimitReached);
                 }
-                last_error = Some(TranscriptionError::RateLimitReached);
-                continue;
-            }
-            Err(e) => {
-                error!("Error with key {}: {}", attempt + 1, e);
-                last_error = Some(e);
-                break;
+                Err(e) => {
+                    error!(
+                        "Error with key {} and model {}: {}",
+                        key_index + 1,
+                        model,
+                        e
+                    );
+                    last_error = Some(e);
+                    break;
+                }
             }
         }
     }
@@ -140,5 +139,10 @@ async fn summarize_with_key(
         TranscriptionError::ParseError("Failed to parse API response".to_string())
     })?;
 
-    Ok(response.choices[0].message.content.trim().to_string())
+    let choice = response.choices.first().ok_or_else(|| {
+        error!("Groq returned a chat response with no choices");
+        TranscriptionError::ParseError("Groq response did not include a summary".to_string())
+    })?;
+
+    Ok(choice.message.content.trim().to_string())
 }

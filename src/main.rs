@@ -6,6 +6,7 @@ use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::net::Download;
+use teloxide::types::UserId;
 use teloxide::types::{Message, ParseMode, ReactionType};
 use teloxide::utils::command::BotCommands;
 use teloxide::{prelude::*, utils::html};
@@ -139,7 +140,7 @@ async fn handle_command(
     message: &Message,
     command: BotCommand,
     db: &Arc<Database>,
-    user_id: teloxide::types::UserId,
+    user_id: UserId,
 ) {
     match command {
         BotCommand::Help => {
@@ -205,14 +206,16 @@ async fn handle_command(
                 "<b>Privacy Policy:</b>\n\n\
                 • Bot is open source: https://github.com/DuckyBlender/duck_transcriber\n\
                 • Bot caches: unique file id → transcription/translation/summary\n\
-                • Nothing else is stored, not even in logs\n\
-                • Transcription cache is cleared after 7 days\n\
+                • Bot stores temporary per-user timestamps for rate limiting\n\
+                • No message contents or user details are stored in logs\n\
+                • Transcription and translation cache is cleared after 7 days\n\
                 • Summary cache is cleared after 1 day\n\
+                • Rate limit records are cleared after 2 hours\n\
                 • Join @sussy_announcements for support/questions\n\
                 • No guarantees about model accuracy or reliability\n\
                 • Uses {} from GroqCloud for instant transcription\n\
                 • Uses {} from GroqCloud for instant translation\n\
-                • Falls back to local whisper.cpp {} only when GroqCloud transcription/translation rate limits are reached\n\
+                • Falls back to local whisper.cpp {} running on an RTX 3050 Mobile when GroqCloud transcription/translation rate limits are reached\n\
                 • Uses {} from GroqCloud for instant summarization\n\
                 • <b>GroqCloud Privacy:</b> Uses Global ZDR (Zero Day Retention) active. No data is stored on GroqCloud servers.",
                 pretty_model_name(transcribe::TRANSCRIPTION_MODEL),
@@ -278,7 +281,7 @@ async fn handle_audio_command(
     action: AudioAction,
     help_text: &str,
     db: &Arc<Database>,
-    user_id: teloxide::types::UserId,
+    user_id: UserId,
 ) {
     let target_message = if has_audio_content(message) {
         message
@@ -338,8 +341,59 @@ fn validate_file_size(audio_info: &AudioFileInfo) -> Result<(), String> {
     Ok(())
 }
 
-fn should_force_local_whisper(user_id: teloxide::types::UserId) -> bool {
+fn validate_audio_limits(audio_info: &AudioFileInfo) -> Result<(), String> {
+    validate_file_size(audio_info)?;
+
+    if audio_info.duration > MAX_DURATION * 60 {
+        warn!("The audio message is above {MAX_DURATION} minutes!");
+        return Err(format!("Duration is above {MAX_DURATION} minutes"));
+    }
+
+    Ok(())
+}
+
+fn should_force_local_whisper(user_id: UserId) -> bool {
     user_id.0 == TEST_LOCAL_WHISPER_USER_ID
+}
+
+async fn set_reaction(bot: &Bot, message: &Message, emoji: &str) {
+    if let Err(err) = bot
+        .set_message_reaction(message.chat.id, message.id)
+        .reaction([ReactionType::Emoji {
+            emoji: emoji.to_string(),
+        }])
+        .await
+    {
+        error!("Failed to set reaction: {err:?}");
+    }
+}
+
+async fn consume_rate_limit(
+    bot: &Bot,
+    reply_context: &Message,
+    db: &Arc<Database>,
+    user_id: UserId,
+) -> bool {
+    match db
+        .check_and_record_usage(user_id, RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_HOUR)
+        .await
+    {
+        Ok(true) => true,
+        Ok(false) => {
+            warn!("Rate limit exceeded for user {}", user_id);
+            set_reaction(bot, reply_context, USER_RATE_LIMIT_REACTION).await;
+            false
+        }
+        Err(e) => {
+            error!("Failed to check rate limit: {e}");
+            true
+        }
+    }
+}
+
+async fn send_groq_rate_limit_reaction(bot: &Bot, reply_context: &Message, context: &str) {
+    warn!("Rate limit reached for {context}");
+    set_reaction(bot, reply_context, GROQ_RATE_LIMIT_REACTION).await;
 }
 
 async fn handle_audio_message(
@@ -348,76 +402,46 @@ async fn handle_audio_message(
     bot: &Bot,
     db: &Arc<Database>,
     task_type: TaskType,
-    user_id: teloxide::types::UserId,
+    user_id: UserId,
 ) {
     let audio_info = match setup_audio_processing(audio_source_message).await {
         Some(info) => info,
         None => return,
     };
 
-    match db
-        .check_rate_limit(user_id, RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_HOUR)
-        .await
-    {
-        Ok(false) => {
-            warn!("Rate limit exceeded for user {}", user_id);
-            if let Err(err) = bot
-                .set_message_reaction(reply_context.chat.id, reply_context.id)
-                .reaction([ReactionType::Emoji {
-                    emoji: USER_RATE_LIMIT_REACTION.to_string(),
-                }])
-                .await
-            {
-                error!("Failed to set reaction: {err:?}");
-            }
-            return;
-        }
-        Err(e) => {
-            error!("Failed to check rate limit: {e}");
-        }
-        _ => {}
+    if !consume_rate_limit(bot, reply_context, db, user_id).await {
+        return;
     }
 
     let force_local_whisper = should_force_local_whisper(user_id);
+    let cache_key = audio_info.unique_id.to_string();
 
     if !force_local_whisper {
-        if let Ok(Some(transcription)) = db
-            .get_cached(&audio_info.unique_id.to_string(), &task_type)
-            .await
-        {
-            info!(
-                "Transcription found in cache for unique_file_id: {}",
-                audio_info.unique_id
-            );
-            safe_send(
-                bot,
-                reply_context,
-                Some(&transcription),
-                None,
-                Some(task_type),
-            )
-            .await;
-            return;
+        match db.get_cached(&cache_key, &task_type).await {
+            Ok(Some(transcription)) => {
+                info!(
+                    "Transcription found in cache for unique_file_id: {}",
+                    audio_info.unique_id
+                );
+                safe_send(
+                    bot,
+                    reply_context,
+                    Some(&transcription),
+                    None,
+                    Some(task_type),
+                )
+                .await;
+                return;
+            }
+            Err(e) => error!("Failed to read transcription cache: {e}"),
+            Ok(None) => {}
         }
     } else {
         info!("Forcing local whisper.cpp for test user {}", user_id);
     }
 
-    if let Err(error_msg) = validate_file_size(&audio_info) {
+    if let Err(error_msg) = validate_audio_limits(&audio_info) {
         safe_send(bot, reply_context, Some(&error_msg), None, None).await;
-        return;
-    }
-
-    if audio_info.duration > MAX_DURATION * 60 {
-        warn!("The audio message is above {MAX_DURATION} minutes!");
-        safe_send(
-            bot,
-            reply_context,
-            Some(&format!("Duration is above {MAX_DURATION} minutes")),
-            None,
-            None,
-        )
-        .await;
         return;
     }
 
@@ -439,16 +463,7 @@ async fn handle_audio_message(
             Ok(transcription) => transcription,
             Err(e) => match e {
                 TranscriptionError::RateLimitReached => {
-                    warn!("Rate limit reached for message");
-                    if let Err(err) = bot
-                        .set_message_reaction(reply_context.chat.id, reply_context.id)
-                        .reaction([ReactionType::Emoji {
-                            emoji: GROQ_RATE_LIMIT_REACTION.to_string(),
-                        }])
-                        .await
-                    {
-                        error!("Failed to set reaction: {err:?}");
-                    }
+                    send_groq_rate_limit_reaction(bot, reply_context, "message").await;
                     return;
                 }
                 _ => {
@@ -476,21 +491,10 @@ async fn handle_audio_message(
     )
     .await;
 
-    if !force_local_whisper {
-        if let Err(e) = db
-            .set_cached(
-                &audio_info.unique_id.to_string(),
-                &task_type,
-                &transcription,
-            )
-            .await
-        {
-            error!("Failed to cache transcription: {e}");
-        }
-    }
-
-    if let Err(e) = db.record_usage(user_id).await {
-        error!("Failed to record usage: {e}");
+    if !force_local_whisper
+        && let Err(e) = db.set_cached(&cache_key, &task_type, &transcription).await
+    {
+        error!("Failed to cache transcription: {e}");
     }
 }
 
@@ -501,7 +505,7 @@ async fn handle_summarization(
     task_type: TaskType,
     bot: &Bot,
     db: &Arc<Database>,
-    user_id: teloxide::types::UserId,
+    user_id: UserId,
 ) {
     let audio_info = match setup_audio_processing(audio_source_message).await {
         Some(info) => {
@@ -514,82 +518,62 @@ async fn handle_summarization(
         None => return,
     };
 
-    match db
-        .check_rate_limit(user_id, RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_HOUR)
-        .await
-    {
-        Ok(false) => {
-            warn!("Rate limit exceeded for user {}", user_id);
-            if let Err(err) = bot
-                .set_message_reaction(reply_context.chat.id, reply_context.id)
-                .reaction([ReactionType::Emoji {
-                    emoji: USER_RATE_LIMIT_REACTION.to_string(),
-                }])
-                .await
-            {
-                error!("Failed to set reaction: {err:?}");
-            }
-            return;
-        }
-        Err(e) => {
-            error!("Failed to check rate limit: {e}");
-        }
-        _ => {}
+    if !consume_rate_limit(bot, reply_context, db, user_id).await {
+        return;
     }
 
     let force_local_whisper = should_force_local_whisper(user_id);
-
-    if !force_local_whisper {
-        if let Ok(Some(cached_summary)) = db
-            .get_cached(&audio_info.unique_id.to_string(), &task_type)
-            .await
-        {
-            info!(
-                "Summary found in cache for unique_file_id: {}",
-                audio_info.unique_id
-            );
-            let formatted_summary = format!("<i>{}</i>", html::escape(&cached_summary));
-            safe_send(
-                bot,
-                reply_context,
-                Some(&formatted_summary),
-                Some(ParseMode::Html),
-                Some(TaskType::Summarize),
-            )
-            .await;
-            return;
-        }
-    } else {
+    let cache_key = audio_info.unique_id.to_string();
+    if force_local_whisper {
         info!("Forcing local whisper.cpp for test user {}", user_id);
     }
 
-    let translation = match db
-        .get_cached(&audio_info.unique_id.to_string(), &TaskType::Translate)
-        .await
-    {
-        Ok(Some(translation)) if !force_local_whisper => {
+    if !force_local_whisper {
+        match db.get_cached(&cache_key, &task_type).await {
+            Ok(Some(cached_summary)) => {
+                info!(
+                    "Summary found in cache for unique_file_id: {}",
+                    audio_info.unique_id
+                );
+                let formatted_summary = format!("<i>{}</i>", html::escape(&cached_summary));
+                safe_send(
+                    bot,
+                    reply_context,
+                    Some(&formatted_summary),
+                    Some(ParseMode::Html),
+                    Some(task_type),
+                )
+                .await;
+                return;
+            }
+            Err(e) => error!("Failed to read summary cache: {e}"),
+            Ok(None) => {}
+        }
+    }
+
+    let cached_translation = if force_local_whisper {
+        None
+    } else {
+        match db.get_cached(&cache_key, &TaskType::Translate).await {
+            Ok(translation) => translation,
+            Err(e) => {
+                error!("Failed to read translation cache: {e}");
+                None
+            }
+        }
+    };
+
+    let translation = match cached_translation {
+        Some(translation) => {
             info!(
                 "Translation found in cache for unique_file_id: {}",
                 audio_info.unique_id
             );
             translation
         }
-        _ => {
-            if let Err(error_msg) = validate_file_size(&audio_info) {
+        None => {
+            if let Err(error_msg) = validate_audio_limits(&audio_info) {
                 safe_send(bot, reply_context, Some(&error_msg), None, None).await;
-                return;
-            }
-
-            if audio_info.duration > MAX_DURATION * 60 {
-                warn!("The audio message is above {MAX_DURATION} minutes!");
-                safe_send(
-                    bot,
-                    reply_context,
-                    Some(&format!("Duration is above {MAX_DURATION} minutes")),
-                    None,
-                    None,
-                )
-                .await;
                 return;
             }
 
@@ -619,11 +603,7 @@ async fn handle_summarization(
                         );
 
                         if let Err(e) = db
-                            .set_cached(
-                                &audio_info.unique_id.to_string(),
-                                &TaskType::Translate,
-                                &translation,
-                            )
+                            .set_cached(&cache_key, &TaskType::Translate, &translation)
                             .await
                         {
                             error!("Failed to cache translation: {e}");
@@ -645,16 +625,7 @@ async fn handle_summarization(
                 }
                 Err(e) => match e {
                     TranscriptionError::RateLimitReached => {
-                        warn!("Rate limit reached for translation");
-                        if let Err(err) = bot
-                            .set_message_reaction(reply_context.chat.id, reply_context.id)
-                            .reaction([ReactionType::Emoji {
-                                emoji: GROQ_RATE_LIMIT_REACTION.to_string(),
-                            }])
-                            .await
-                        {
-                            error!("Failed to set reaction: {err:?}");
-                        }
+                        send_groq_rate_limit_reaction(bot, reply_context, "translation").await;
                         return;
                     }
                     _ => {
@@ -671,16 +642,7 @@ async fn handle_summarization(
         Ok(summary) => summary,
         Err(e) => match e {
             TranscriptionError::RateLimitReached => {
-                warn!("Rate limit reached for summarization");
-                if let Err(err) = bot
-                    .set_message_reaction(reply_context.chat.id, reply_context.id)
-                    .reaction([ReactionType::Emoji {
-                        emoji: GROQ_RATE_LIMIT_REACTION.to_string(),
-                    }])
-                    .await
-                {
-                    error!("Failed to set reaction: {err:?}");
-                }
+                send_groq_rate_limit_reaction(bot, reply_context, "summarization").await;
                 return;
             }
             _ => {
@@ -690,15 +652,6 @@ async fn handle_summarization(
         },
     };
 
-    if !force_local_whisper {
-        if let Err(e) = db
-            .set_cached(&audio_info.unique_id.to_string(), &task_type, &summary)
-            .await
-        {
-            error!("Failed to cache summary: {e}");
-        }
-    }
-
     let formatted_summary = format!("<i>{}</i>", html::escape(&summary));
 
     safe_send(
@@ -706,12 +659,12 @@ async fn handle_summarization(
         reply_context,
         Some(&formatted_summary),
         Some(ParseMode::Html),
-        Some(TaskType::Summarize),
+        Some(task_type),
     )
     .await;
 
-    if let Err(e) = db.record_usage(user_id).await {
-        error!("Failed to record usage: {e}");
+    if !force_local_whisper && let Err(e) = db.set_cached(&cache_key, &task_type, &summary).await {
+        error!("Failed to cache summary: {e}");
     }
 }
 

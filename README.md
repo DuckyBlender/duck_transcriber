@@ -2,15 +2,16 @@
 
 ## Overview
 
-A Telegram bot that transcribes, translates, and summarizes voice messages using the Groq Whisper API.
+A Telegram bot that transcribes, translates, and summarizes voice messages using GroqCloud Whisper and chat completions.
 
 **Note on Serverless History:** The last commit of the bot being serverless is [`1ccb016ccabeb320b0c7637d3c15fc9bdedb2a48`](https://github.com/DuckyBlender/duck_transcriber/commit/1ccb016ccabeb320b0c7637d3c15fc9bdedb2a48).
 
 ## How It Works
 
 1. Send a voice, audio, or video note to the bot
-2. The bot transcribes, translates, or summarizes it using the Groq Whisper API
-   and falls back to a local whisper.cpp server only when all GroqCloud keys are
+2. The bot transcribes or translates audio using GroqCloud Whisper, summarizes
+   translated text using GroqCloud chat completions, and falls back to a local
+   whisper.cpp server only when all GroqCloud transcription/translation keys are
    rate limited
 3. Results are sent back instantly and cached for future use
 
@@ -32,17 +33,23 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 
 - **Language**: Rust with async/await
 - **Telegram API**: Built using the `teloxide` crate
-- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API, with a local whisper.cpp fallback on GroqCloud rate limits
+- **Transcription API**: Uses `reqwest` with rustls to communicate with GroqCloud's Whisper API, with a local whisper.cpp fallback on GroqCloud transcription/translation rate limits
+- **Summarization API**: Uses GroqCloud chat completions with model fallback across configured API keys
 - **Database**: SQLite with sqlx for fast, type-safe queries
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
-- **Model**: `whisper-large-v3-turbo` for transcription, `whisper-large-v3` for GroqCloud translation, local whisper.cpp `large-v3-turbo` for rate-limit fallback, and `moonshotai/kimi-k2-instruct-0905` for summarization
+- **Models**:
+  - GroqCloud transcription: `whisper-large-v3-turbo`
+  - GroqCloud translation: `whisper-large-v3`
+  - Local whisper.cpp fallback: `large-v3-turbo`
+  - Summarization fallback order: `openai/gpt-oss-120b`, then `openai/gpt-oss-20b`
 - **Caching**: 
   - Transcriptions and translations cached for 7 days
-  - Summaries (default & caveman) cached for 1 day
-  - File-based cache uses SQLite with automatic expiration cleanup
+  - Summaries (default and caveman) cached for 1 day
+  - SQLite cache uses per-result expiration timestamps with automatic cleanup
 - **Rate Limiting**:
   - Per-user tracking: 5 messages per minute, 30 messages per hour
+  - Temporary per-user rate-limit records are cleaned up after 2 hours
   - Reacts with 🙊 emoji when per-user limit is exceeded
   - Falls back to local whisper.cpp when GroqCloud transcription/translation rate limits are reached
   - Reacts with 😴 emoji when GroqCloud summarization rate limits are reached
@@ -111,7 +118,7 @@ The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in 
 - **Robust Error Handling**: All errors are properly handled and logged
 - **Rate Limit Fallback**: Uses 🙊 for per-user limits, falls back to local whisper.cpp for GroqCloud transcription/translation rate limits, and uses 😴 when summarization rate limits cannot be served locally
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
-- **Automatic Retry**: Configurable API key rotation for automatic failover (if multiple keys provided)
+- **Automatic Retry**: Configurable API key rotation for transcription/translation failover, plus model and key fallback for summarization
 
 ## Support & Donations
 

@@ -19,4 +19,4 @@ experimental/
 .aider*
 .DS_Store
 bot.log
-*.db
+*.db*
