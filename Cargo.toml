@@ -19,5 +19,5 @@ mime_guess = "2.0"
 strum = { version = "0.28", features = ["derive"] }
 log = "0.4"
 fern = "0.7"
-sqlx = { version = "0.9", features = ["tls-rustls", "sqlite", "macros"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "sqlite", "macros"] }
 dotenvy = "0.15.7"
