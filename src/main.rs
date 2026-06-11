@@ -418,28 +418,28 @@ async fn handle_audio_message(
     let force_local_whisper = should_force_local_whisper(user_id);
     let cache_key = audio_info.unique_id.to_string();
 
-    if !force_local_whisper {
-        match db.get_cached(&cache_key, &task_type).await {
-            Ok(Some(transcription)) => {
-                info!(
-                    "Transcription found in cache for unique_file_id: {}",
-                    audio_info.unique_id
-                );
-                safe_send(
-                    bot,
-                    reply_context,
-                    Some(&transcription),
-                    None,
-                    Some(task_type),
-                )
-                .await;
-                return;
-            }
-            Err(e) => error!("Failed to read transcription cache: {e}"),
-            Ok(None) => {}
-        }
-    } else {
+    if force_local_whisper {
         info!("Forcing local whisper.cpp for test user {}", user_id);
+    }
+
+    match db.get_cached(&cache_key, &task_type).await {
+        Ok(Some(transcription)) => {
+            info!(
+                "Transcription found in cache for unique_file_id: {}",
+                audio_info.unique_id
+            );
+            safe_send(
+                bot,
+                reply_context,
+                Some(&transcription),
+                None,
+                Some(task_type),
+            )
+            .await;
+            return;
+        }
+        Err(e) => error!("Failed to read transcription cache: {e}"),
+        Ok(None) => {}
     }
 
     if let Err(error_msg) = validate_audio_limits(&audio_info) {
@@ -493,9 +493,7 @@ async fn handle_audio_message(
     )
     .await;
 
-    if !force_local_whisper
-        && let Err(e) = db.set_cached(&cache_key, &task_type, &transcription).await
-    {
+    if let Err(e) = db.set_cached(&cache_key, &task_type, &transcription).await {
         error!("Failed to cache transcription: {e}");
     }
 }
@@ -530,38 +528,32 @@ async fn handle_summarization(
         info!("Forcing local whisper.cpp for test user {}", user_id);
     }
 
-    if !force_local_whisper {
-        match db.get_cached(&cache_key, &task_type).await {
-            Ok(Some(cached_summary)) => {
-                info!(
-                    "Summary found in cache for unique_file_id: {}",
-                    audio_info.unique_id
-                );
-                let formatted_summary = format!("<i>{}</i>", html::escape(&cached_summary));
-                safe_send(
-                    bot,
-                    reply_context,
-                    Some(&formatted_summary),
-                    Some(ParseMode::Html),
-                    Some(task_type),
-                )
-                .await;
-                return;
-            }
-            Err(e) => error!("Failed to read summary cache: {e}"),
-            Ok(None) => {}
+    match db.get_cached(&cache_key, &task_type).await {
+        Ok(Some(cached_summary)) => {
+            info!(
+                "Summary found in cache for unique_file_id: {}",
+                audio_info.unique_id
+            );
+            let formatted_summary = format!("<i>{}</i>", html::escape(&cached_summary));
+            safe_send(
+                bot,
+                reply_context,
+                Some(&formatted_summary),
+                Some(ParseMode::Html),
+                Some(task_type),
+            )
+            .await;
+            return;
         }
+        Err(e) => error!("Failed to read summary cache: {e}"),
+        Ok(None) => {}
     }
 
-    let cached_translation = if force_local_whisper {
-        None
-    } else {
-        match db.get_cached(&cache_key, &TaskType::Translate).await {
-            Ok(translation) => translation,
-            Err(e) => {
-                error!("Failed to read translation cache: {e}");
-                None
-            }
+    let cached_translation = match db.get_cached(&cache_key, &TaskType::Translate).await {
+        Ok(translation) => translation,
+        Err(e) => {
+            error!("Failed to read translation cache: {e}");
+            None
         }
     };
 
@@ -598,18 +590,16 @@ async fn handle_summarization(
             .await
             {
                 Ok(Some(translation)) => {
-                    if !force_local_whisper {
-                        info!(
-                            "Saving translation to cache with unique_file_id: {}",
-                            audio_info.unique_id
-                        );
+                    info!(
+                        "Saving translation to cache with unique_file_id: {}",
+                        audio_info.unique_id
+                    );
 
-                        if let Err(e) = db
-                            .set_cached(&cache_key, &TaskType::Translate, &translation)
-                            .await
-                        {
-                            error!("Failed to cache translation: {e}");
-                        }
+                    if let Err(e) = db
+                        .set_cached(&cache_key, &TaskType::Translate, &translation)
+                        .await
+                    {
+                        error!("Failed to cache translation: {e}");
                     }
 
                     translation
@@ -665,7 +655,7 @@ async fn handle_summarization(
     )
     .await;
 
-    if !force_local_whisper && let Err(e) = db.set_cached(&cache_key, &task_type, &summary).await {
+    if let Err(e) = db.set_cached(&cache_key, &task_type, &summary).await {
         error!("Failed to cache summary: {e}");
     }
 }
