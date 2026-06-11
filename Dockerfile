@@ -25,13 +25,7 @@ FROM rust:1-slim AS runtime
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Create data directory for SQLite database
-RUN mkdir -p /app/data
-
 COPY --from=builder /app/target/release/duck_transcriber .
-
-# Default database location
-ENV DATABASE_URL=sqlite:/app/data/duck_transcriber.db
 
 # Run with: docker run --env-file .env duck_transcriber
 CMD ["./duck_transcriber"]

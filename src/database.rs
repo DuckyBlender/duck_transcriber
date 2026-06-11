@@ -2,7 +2,6 @@ use crate::types::TaskType;
 use log::{info, warn};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
-use std::env;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use teloxide::types::UserId;
@@ -17,18 +16,14 @@ pub struct Database {
 
 impl Database {
     pub async fn connect() -> Result<Self, sqlx::Error> {
-        let database_url =
-            env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:duck_transcriber.db".to_string());
-
-        let connect_options =
-            SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
+        let connect_options = SqliteConnectOptions::from_str("sqlite::memory:")?;
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
+            .max_connections(1)
             .connect_with(connect_options)
             .await?;
 
-        info!("Connected to SQLite database");
+        info!("Connected to in-memory SQLite database");
 
         Ok(Database { pool })
     }

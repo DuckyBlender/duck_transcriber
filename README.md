@@ -63,7 +63,7 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 
 - `TELEGRAM_BOT_TOKEN`: The token for your Telegram bot
 - `GROQ_API_KEY`: Optional for `/transcribe` and `/translate` when local whisper.cpp is available; required for `/summarize` and `/caveman`. Supports multiple keys separated by commas for automatic failover (e.g., `key1,key2,key3`)
-- `DATABASE_URL`: SQLite database path (default: `sqlite:duck_transcriber.db`)
+- `DATABASE_URL`: SQLite database URL for SQLx compile-time query checking and SQLx CLI commands. Runtime uses an in-memory SQLite database.
 - `WHISPER_LOCAL_URL`: Local whisper.cpp fallback endpoint (default: `http://host.docker.internal:8080/inference`)
 
 ## Deployment
