@@ -1,6 +1,6 @@
 # Stage 1: Chef - prepare recipe
 FROM rust:1-slim AS chef
-RUN cargo install cargo-chef && cargo install sqlx-cli --no-default-features --features sqlite
+RUN cargo install cargo-chef
 WORKDIR /app
 
 # Stage 2: Planner - create recipe.json
