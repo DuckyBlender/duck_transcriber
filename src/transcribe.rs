@@ -33,7 +33,6 @@ pub async fn transcribe(
 
     // Try each API key until one succeeds
     let mut last_error = None;
-    let mut all_keys_rate_limited = true;
     for (attempt, api_key) in api_keys.iter().enumerate() {
         info!(
             "Attempting transcription with API key {} of {}",
@@ -43,30 +42,23 @@ pub async fn transcribe(
 
         match transcribe_with_key(task_type, buffer.clone(), mime.clone(), api_key).await {
             Ok(result) => return Ok(result),
-            Err(TranscriptionError::RateLimitReached) => {
-                warn!(
-                    "Rate limit reached with key {}, trying next key",
-                    attempt + 1
-                );
-                last_error = Some(TranscriptionError::RateLimitReached);
-                continue;
-            }
             Err(e) => {
-                error!("Error with key {}: {}", attempt + 1, e);
-                all_keys_rate_limited = false;
+                warn!(
+                    "Error with key {}: {}; trying next key",
+                    attempt + 1,
+                    e
+                );
                 last_error = Some(e);
-                break;
+                continue;
             }
         }
     }
 
-    if all_keys_rate_limited {
-        warn!("All Groq API keys are rate limited; falling back to local whisper.cpp");
-        return transcribe_with_local_whisper(task_type, buffer, mime).await;
-    }
-
-    Err(last_error
-        .unwrap_or_else(|| TranscriptionError::ApiError("All API keys failed".to_string())))
+    warn!(
+        "All Groq API keys failed (last error: {:?}); falling back to local whisper.cpp",
+        last_error
+    );
+    transcribe_with_local_whisper(task_type, buffer, mime).await
 }
 
 async fn transcribe_with_key(

@@ -463,17 +463,11 @@ async fn handle_audio_message(
     let transcription =
         match transcribe::transcribe(&task_type, audio_bytes, mime, force_local_whisper).await {
             Ok(transcription) => transcription,
-            Err(e) => match e {
-                TranscriptionError::RateLimitReached => {
-                    send_groq_rate_limit_reaction(bot, reply_context, "message").await;
-                    return;
-                }
-                _ => {
-                    warn!("Failed to transcribe audio: {e}");
-                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
-                    return;
-                }
-            },
+            Err(e) => {
+                warn!("Failed to transcribe audio: {e}");
+                safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                return;
+            }
         };
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());
 
@@ -615,16 +609,10 @@ async fn handle_summarization(
                     .await;
                     return;
                 }
-                Err(e) => match e {
-                    TranscriptionError::RateLimitReached => {
-                        send_groq_rate_limit_reaction(bot, reply_context, "translation").await;
-                        return;
-                    }
-                    _ => {
-                        safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None)
-                            .await;
-                        return;
-                    }
+                Err(e) => {
+                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None)
+                        .await;
+                    return;
                 },
             }
         }
