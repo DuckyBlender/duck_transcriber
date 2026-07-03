@@ -7,7 +7,11 @@ use log::{error, info, warn};
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
 
-pub const SUMMARIZATION_MODELS: [&str; 2] = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+pub const SUMMARIZATION_MODELS: [&str; 3] = [
+    "qwen/qwen3.6-27b",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+];
 
 pub async fn summarize(text: &str, method: SummarizeMethod) -> Result<String, TranscriptionError> {
     let api_keys = utils::get_api_keys();

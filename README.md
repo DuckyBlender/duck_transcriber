@@ -26,7 +26,7 @@ The bot can be added to groups to automatically transcribe voice messages. You c
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
 - `/caveman`: Summarizes the voice, audio, or video note in a "caveman" style
 - `/privacy`: Shows the privacy policy
-- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information (25 messages per minute, 150 messages per hour)
+- `/limits` (aliases: `/ratelimit`, `/ratelimits`): Shows current rate limit information
 - `/donate`: Shows cryptocurrency donation addresses to support the project
 
 ## Technical Details
@@ -42,11 +42,11 @@ The bot can be added to groups to automatically transcribe voice messages. You c
   - GroqCloud transcription: `whisper-large-v3-turbo`
   - GroqCloud translation: `whisper-large-v3`
   - Local whisper.cpp fallback: `large-v3-turbo`
-  - Summarization fallback order: `openai/gpt-oss-120b`, then `openai/gpt-oss-20b`
+  - Summarization fallback order: `qwen/qwen3.6-27b`, then `openai/gpt-oss-120b` and finally `openai/gpt-oss-20b`
 - **Caching**: 
   - Transcriptions and translations cached for 7 days
-  - Summaries (default and caveman) cached for 1 day
-  - SQLite cache uses per-result expiration timestamps with automatic cleanup
+  - Summaries (default and caveman) cached for 1 hour
+  - In-memory cache uses per-result expiration timestamps with automatic cleanup
 - **Rate Limiting**:
   - Per-user tracking: 25 messages per minute, 150 messages per hour
   - Temporary per-user rate-limit records are cleaned up after 2 hours

@@ -207,14 +207,11 @@ async fn handle_command(
             let privacy_policy = format!(
                 "<b>Privacy Policy:</b>\n\n\
                 • Bot is open source: https://github.com/DuckyBlender/duck_transcriber\n\
-                • Bot caches: unique file id → transcription/translation/summary\n\
-                • Bot stores temporary per-user timestamps for rate limiting\n\
-                • No message contents or user details are stored in logs\n\
-                • Transcription and translation cache is cleared after 7 days\n\
-                • Summary cache is cleared after 1 day\n\
-                • Rate limit records are cleared after 2 hours\n\
+                • All cache is in-memory only and cleared on bot restart\n\
+                • Transcriptions/translations cache for 7 days; summaries for 1 hour\n\
+                • Rate limits use temporary in-memory per-user timestamps\n\
+                • Message contents and user details are not stored in logs\n\
                 • Join @sussy_announcements for support/questions\n\
-                • No guarantees about model accuracy or reliability\n\
                 • Uses {} from GroqCloud for instant transcription\n\
                 • Uses {} from GroqCloud for instant translation\n\
                 • Falls back to local whisper.cpp {} running on an RTX 3050 Mobile when GroqCloud transcription/translation rate limits are reached\n\
@@ -610,10 +607,9 @@ async fn handle_summarization(
                     return;
                 }
                 Err(e) => {
-                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None)
-                        .await;
+                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
                     return;
-                },
+                }
             }
         }
     };

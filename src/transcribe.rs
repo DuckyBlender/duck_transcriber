@@ -43,11 +43,7 @@ pub async fn transcribe(
         match transcribe_with_key(task_type, buffer.clone(), mime.clone(), api_key).await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                warn!(
-                    "Error with key {}: {}; trying next key",
-                    attempt + 1,
-                    e
-                );
+                warn!("Error with key {}: {}; trying next key", attempt + 1, e);
                 last_error = Some(e);
                 continue;
             }
