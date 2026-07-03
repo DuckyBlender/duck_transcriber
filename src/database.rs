@@ -16,7 +16,8 @@ pub struct Database {
 
 impl Database {
     pub async fn connect() -> Result<Self, sqlx::Error> {
-        let connect_options = SqliteConnectOptions::from_str("sqlite::memory:")?;
+        let connect_options = SqliteConnectOptions::from_str("sqlite::memory:")?
+            .shared_cache(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
