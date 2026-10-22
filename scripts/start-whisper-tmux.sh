@@ -10,6 +10,9 @@ SERVER_BIN="${WHISPER_SERVER_BIN:-"$WHISPER_DIR/build/bin/whisper-server"}"
 HOST="${WHISPER_HOST:-0.0.0.0}"
 PORT="${WHISPER_PORT:-8080}"
 THREADS="${WHISPER_THREADS:-}"
+# Uploaded audio is written here for ffmpeg conversion. Keep it on tmpfs so a
+# leaked file never persists across reboots (and never lands in the repo dir).
+TMP_DIR="${WHISPER_TMP_DIR:-/tmp/whisper-server}"
 
 if ! command -v tmux >/dev/null 2>&1; then
     echo "tmux is required but was not found in PATH" >&2
@@ -37,12 +40,18 @@ if [[ ! -x "$SERVER_BIN" ]]; then
     cmake --build "$WHISPER_DIR/build" --config Release -j --target whisper-server
 fi
 
+mkdir -p "$TMP_DIR"
+chmod 700 "$TMP_DIR"
+# Nothing is in flight before the server starts, so anything here is stale.
+rm -f "$TMP_DIR"/whisper-server-*.wav
+
 cmd=(
     "$SERVER_BIN"
     --host "$HOST"
     --port "$PORT"
     --model "$MODEL_PATH"
     --convert
+    --tmp-dir "$TMP_DIR"
     --language auto
 )
 
