@@ -239,7 +239,11 @@ async fn handle_command(
                 • <b>Whole Bot:</b> {} per hour\n\
                 • <b>/translate:</b> recordings up to {} minutes\n\
                 • Results that are already cached don't count\n\n\
-                Everything runs on one local GPU, so the AI commands are limited to keep the bot fast for everyone. 🙊 means you hit your limit, 😴 means the bot is busy.",
+                Everything runs on one local GPU, so the AI commands are limited to keep the bot fast for everyone.\n\n\
+                <b>Reactions</b>\n\
+                • 🙊 You hit your limit\n\
+                • 😴 The bot is busy, try again later\n\
+                • 💔 Transcription or the AI failed, try again later",
                 RATE_LIMIT_PER_MINUTE,
                 RATE_LIMIT_PER_HOUR,
                 LLM_LIMITS.per_user_hour,
