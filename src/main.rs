@@ -19,13 +19,25 @@ mod transcribe;
 mod types;
 mod utils;
 
-use database::Database;
+use database::{Database, LlmLimits, LlmUsage};
 
 const RATE_LIMIT_PER_MINUTE: u32 = 25;
 const RATE_LIMIT_PER_HOUR: u32 = 150;
 const MAX_DURATION: u32 = 30;
 const MAX_FILE_SIZE: u32 = 20;
 const USER_RATE_LIMIT_REACTION: &str = "🙊";
+// llama.cpp translations and summaries are slow and share the GPU with
+// whisper.cpp, so they get their own, much lower limits.
+const LLM_LIMITS: LlmLimits = LlmLimits {
+    per_user_hour: 15,
+    per_user_day: 50,
+    global_hour: 100,
+};
+// Translating writes out the whole transcript at ~12 tokens/s, about 15 s per
+// minute of audio; 10 minutes stays well inside the LLM timeout.
+const MAX_TRANSLATE_DURATION: u32 = 10;
+// Reacted when the bot as a whole has hit the LLM limit.
+const BUSY_REACTION: &str = "😴";
 // Reacted instead of replying when whisper.cpp or llama.cpp can't produce a result.
 const FAILED_REACTION: &str = "💔";
 
@@ -219,10 +231,21 @@ async fn handle_command(
         BotCommand::Limits => {
             let rate_limit_info = format!(
                 "<b>📊 Rate Limit Info</b>\n\n\
+                <b>All audio commands</b> (per user)\n\
                 • <b>Per Minute:</b> {} requests\n\
                 • <b>Per Hour:</b> {} requests\n\n\
-                The rate limit is applied per user to ensure fair usage. These limits are extremely generous and are only here to prevent abuse.",
-                RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_HOUR
+                <b>/translate, /summarize and /caveman</b>\n\
+                • <b>Per User:</b> {} per hour, {} per day\n\
+                • <b>Whole Bot:</b> {} per hour\n\
+                • <b>/translate:</b> recordings up to {} minutes\n\
+                • Results that are already cached don't count\n\n\
+                Everything runs on one local GPU, so the AI commands are limited to keep the bot fast for everyone. 🙊 means you hit your limit, 😴 means the bot is busy.",
+                RATE_LIMIT_PER_MINUTE,
+                RATE_LIMIT_PER_HOUR,
+                LLM_LIMITS.per_user_hour,
+                LLM_LIMITS.per_user_day,
+                LLM_LIMITS.global_hour,
+                MAX_TRANSLATE_DURATION
             );
             safe_send(
                 bot,
@@ -371,6 +394,31 @@ async fn consume_rate_limit(
     }
 }
 
+/// Reserves one llama.cpp request. Reacts with 🙊 when the user has used up
+/// their share and with 😴 when the whole bot is at its limit.
+async fn consume_llm_quota(
+    bot: &Bot,
+    reply_context: &Message,
+    db: &Arc<Database>,
+    user_id: UserId,
+) -> bool {
+    match db.check_and_record_llm_usage(user_id, &LLM_LIMITS).await {
+        Ok(LlmUsage::Allowed) => true,
+        Ok(LlmUsage::UserLimited) => {
+            set_reaction(bot, reply_context, USER_RATE_LIMIT_REACTION).await;
+            false
+        }
+        Ok(LlmUsage::GlobalLimited) => {
+            set_reaction(bot, reply_context, BUSY_REACTION).await;
+            false
+        }
+        Err(e) => {
+            error!("Failed to check LLM limit: {e}");
+            true
+        }
+    }
+}
+
 /// Returns the transcript of the audio from the cache or whisper.cpp. An empty
 /// string means the audio has no speech. Returns `None` after it has already
 /// told the user why there is no transcript.
@@ -460,6 +508,14 @@ async fn handle_audio_message(
             Err(e) => error!("Failed to read translation cache: {e}"),
             Ok(None) => {}
         }
+
+        if audio_info.duration > MAX_TRANSLATE_DURATION * 60 {
+            let message = format!(
+                "Translation is limited to recordings up to {MAX_TRANSLATE_DURATION} minutes."
+            );
+            safe_send(bot, reply_context, Some(&message), None, None).await;
+            return;
+        }
     }
 
     let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
@@ -469,19 +525,24 @@ async fn handle_audio_message(
     };
 
     let output = match task_type {
-        TaskType::Translate if !transcript.is_empty() => match llm::translate(&transcript).await {
-            Ok(translation) => {
-                if let Err(e) = db.set_cached(&cache_key, &task_type, &translation).await {
-                    error!("Failed to cache translation: {e}");
-                }
-                translation
-            }
-            Err(e) => {
-                warn!("Failed to translate transcript: {e}");
-                set_reaction(bot, reply_context, FAILED_REACTION).await;
+        TaskType::Translate if !transcript.is_empty() => {
+            if !consume_llm_quota(bot, reply_context, db, user_id).await {
                 return;
             }
-        },
+            match llm::translate(&transcript).await {
+                Ok(translation) => {
+                    if let Err(e) = db.set_cached(&cache_key, &task_type, &translation).await {
+                        error!("Failed to cache translation: {e}");
+                    }
+                    translation
+                }
+                Err(e) => {
+                    warn!("Failed to translate transcript: {e}");
+                    set_reaction(bot, reply_context, FAILED_REACTION).await;
+                    return;
+                }
+            }
+        }
         _ if transcript.is_empty() => "<no text>".to_string(),
         _ => transcript,
     };
@@ -544,6 +605,10 @@ async fn handle_summarization(
             None,
         )
         .await;
+        return;
+    }
+
+    if !consume_llm_quota(bot, reply_context, db, user_id).await {
         return;
     }
 

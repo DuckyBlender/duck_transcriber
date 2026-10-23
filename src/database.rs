@@ -9,6 +9,8 @@ use teloxide::types::UserId;
 const CACHE_EXPIRATION_DAYS: i64 = 7;
 const SUMMARY_CACHE_EXPIRATION_HOURS: i64 = 1;
 const RATE_LIMIT_CLEANUP_MINUTES: i64 = 120;
+// LLM usage has a daily limit, so it is kept for a full day.
+const LLM_USAGE_CLEANUP_HOURS: i64 = 24;
 
 type DatabaseResult<T> = Result<T, Infallible>;
 
@@ -20,6 +22,7 @@ pub struct Database {
 struct DatabaseState {
     cache: HashMap<String, CacheEntry>,
     rate_limits: Vec<RateLimitEntry>,
+    llm_usage: Vec<RateLimitEntry>,
 }
 
 #[derive(Default)]
@@ -38,6 +41,21 @@ struct CachedValue {
 struct RateLimitEntry {
     user_id: UserId,
     timestamp: i64,
+}
+
+/// Limits on llama.cpp requests (translations and summaries), which are far
+/// slower than whisper.cpp and share one GPU.
+pub struct LlmLimits {
+    pub per_user_hour: usize,
+    pub per_user_day: usize,
+    pub global_hour: usize,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum LlmUsage {
+    Allowed,
+    UserLimited,
+    GlobalLimited,
 }
 
 impl Database {
@@ -151,6 +169,53 @@ impl Database {
         Ok(true)
     }
 
+    /// Records one llama.cpp request for the user if it fits within `limits`.
+    pub async fn check_and_record_llm_usage(
+        &self,
+        user_id: UserId,
+        limits: &LlmLimits,
+    ) -> DatabaseResult<LlmUsage> {
+        let now = current_timestamp();
+        let one_hour_ago = now - 3600;
+        let one_day_ago = now - 24 * 3600;
+        let mut state = self.state.lock().expect("database mutex poisoned");
+
+        let user_entries = || {
+            state
+                .llm_usage
+                .iter()
+                .filter(|entry| entry.user_id == user_id)
+        };
+        let user_hour = user_entries()
+            .filter(|entry| entry.timestamp > one_hour_ago)
+            .count();
+        let user_day = user_entries()
+            .filter(|entry| entry.timestamp > one_day_ago)
+            .count();
+        if user_hour >= limits.per_user_hour || user_day >= limits.per_user_day {
+            warn!(
+                "LLM limit exceeded for user {user_id}: {user_hour} requests in the last hour, {user_day} in the last day"
+            );
+            return Ok(LlmUsage::UserLimited);
+        }
+
+        let global_hour = state
+            .llm_usage
+            .iter()
+            .filter(|entry| entry.timestamp > one_hour_ago)
+            .count();
+        if global_hour >= limits.global_hour {
+            warn!("Global LLM limit reached: {global_hour} requests in the last hour");
+            return Ok(LlmUsage::GlobalLimited);
+        }
+
+        state.llm_usage.push(RateLimitEntry {
+            user_id,
+            timestamp: now,
+        });
+        Ok(LlmUsage::Allowed)
+    }
+
     pub async fn cleanup_expired(&self) -> DatabaseResult<()> {
         let now = current_timestamp();
         let mut state = self.state.lock().expect("database mutex poisoned");
@@ -185,6 +250,11 @@ impl Database {
             info!("Deleted {} old rate limit entries", deleted_rate_limits);
         }
 
+        let llm_threshold = now - (LLM_USAGE_CLEANUP_HOURS * 3600);
+        state
+            .llm_usage
+            .retain(|entry| entry.timestamp > llm_threshold);
+
         Ok(())
     }
 }
@@ -210,4 +280,64 @@ fn current_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LIMITS: LlmLimits = LlmLimits {
+        per_user_hour: 2,
+        per_user_day: 3,
+        global_hour: 4,
+    };
+
+    async fn request(db: &Database, user: u64) -> LlmUsage {
+        db.check_and_record_llm_usage(UserId(user), &LIMITS)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn limits_each_user_per_hour() {
+        let db = Database::connect().await.unwrap();
+        assert_eq!(request(&db, 1).await, LlmUsage::Allowed);
+        assert_eq!(request(&db, 1).await, LlmUsage::Allowed);
+        assert_eq!(request(&db, 1).await, LlmUsage::UserLimited);
+        assert_eq!(request(&db, 2).await, LlmUsage::Allowed);
+    }
+
+    #[tokio::test]
+    async fn limits_each_user_per_day() {
+        let db = Database::connect().await.unwrap();
+        let two_hours_ago = current_timestamp() - 2 * 3600;
+        db.state
+            .lock()
+            .unwrap()
+            .llm_usage
+            .extend((0..3).map(|_| RateLimitEntry {
+                user_id: UserId(1),
+                timestamp: two_hours_ago,
+            }));
+        assert_eq!(request(&db, 1).await, LlmUsage::UserLimited);
+        assert_eq!(request(&db, 2).await, LlmUsage::Allowed);
+    }
+
+    #[tokio::test]
+    async fn limits_everyone_together_per_hour() {
+        let db = Database::connect().await.unwrap();
+        for user in 1..=4 {
+            assert_eq!(request(&db, user).await, LlmUsage::Allowed);
+        }
+        assert_eq!(request(&db, 5).await, LlmUsage::GlobalLimited);
+    }
+
+    #[tokio::test]
+    async fn refused_requests_are_not_recorded() {
+        let db = Database::connect().await.unwrap();
+        request(&db, 1).await;
+        request(&db, 1).await;
+        assert_eq!(request(&db, 1).await, LlmUsage::UserLimited);
+        assert_eq!(db.state.lock().unwrap().llm_usage.len(), 2);
+    }
 }

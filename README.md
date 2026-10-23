@@ -46,6 +46,11 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
   - Temporary per-user rate-limit records are cleaned up after 2 hours
   - Reacts with 🙊 emoji when per-user limit is exceeded
   - Applies to all audio operations (transcribe, translate, summarize, caveman)
+- **LLM Limits** (`/translate`, `/summarize`, `/caveman`): llama.cpp is much slower than whisper.cpp and shares its GPU, so these commands have their own limits on top of the ones above
+  - Per user: 15 requests per hour and 50 per day; reacts with 🙊 when exceeded
+  - Whole bot: 100 requests per hour; reacts with 😴 when reached
+  - `/translate` accepts recordings up to 10 minutes (translating takes about 15 seconds per minute of audio); summaries accept the full 30 minutes
+  - Only actual llama.cpp requests count: cached results and recordings without speech are free
 - **Failures**: Reacts with 💔 emoji instead of replying when whisper.cpp or llama.cpp can't produce a result
 
 ## Environment Variables
@@ -109,7 +114,7 @@ The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in 
 ## Error Handling & Reliability
 
 - **Robust Error Handling**: All errors are properly handled and logged
-- **Quiet Failures**: Uses 🙊 for per-user limits and reacts with 💔 (no error message) when transcription, translation or summarization fails, so a server outage doesn't flood groups with error replies
+- **Quiet Failures**: Uses 🙊 for per-user limits, 😴 when the whole bot is at its LLM limit, and reacts with 💔 (no error message) when transcription, translation or summarization fails, so a server outage doesn't flood groups with error replies
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 
 ## Support & Donations
