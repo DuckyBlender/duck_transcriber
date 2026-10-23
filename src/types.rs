@@ -1,5 +1,4 @@
 use mime::Mime;
-use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use teloxide::types::{FileId, FileUniqueId, Message};
 use teloxide::utils::command::BotCommands;
@@ -126,45 +125,19 @@ pub enum SummarizeMethod {
     Caveman,
 }
 
-#[derive(Debug, Serialize)]
-pub struct GroqChatRequest {
-    pub model: String,
-    pub messages: Vec<GroqChatMessage>,
-    pub temperature: f32,
-    pub max_tokens: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GroqChatMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GroqChatResponse {
-    pub choices: Vec<GroqChatChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GroqChatChoice {
-    pub message: GroqChatMessage,
-}
-
 #[derive(Debug)]
 pub enum TranscriptionError {
-    RateLimitReached,
-    NetworkError(String),
-    ParseError(String),
-    ApiError(String),
+    Network(String),
+    Parse(String),
+    Api(String),
 }
 
 impl std::fmt::Display for TranscriptionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TranscriptionError::RateLimitReached => write!(f, "Rate limit reached"),
-            TranscriptionError::NetworkError(msg) => write!(f, "Network error: {}", msg),
-            TranscriptionError::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            TranscriptionError::ApiError(msg) => write!(f, "API error: {}", msg),
+            TranscriptionError::Network(msg) => write!(f, "Network error: {}", msg),
+            TranscriptionError::Parse(msg) => write!(f, "Parse error: {}", msg),
+            TranscriptionError::Api(msg) => write!(f, "API error: {}", msg),
         }
     }
 }

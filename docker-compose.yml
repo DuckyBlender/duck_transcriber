@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       - WHISPER_LOCAL_URL=http://host.docker.internal:8080/inference
+      - LLM_URL=http://host.docker.internal:8081/v1/chat/completions
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:

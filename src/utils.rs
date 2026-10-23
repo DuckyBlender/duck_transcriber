@@ -1,14 +1,30 @@
 use crate::types::TaskType;
 use log::{info, warn};
-use std::env;
 use teloxide::{
     Bot,
     payloads::{SendDocumentSetters, SendMessageSetters},
     prelude::Requester,
     sugar::request::RequestReplyExt,
     types::{ChatAction, ChatId, InputFile, Message, ParseMode},
+    utils::html,
 };
 use tokio::time::{Duration, sleep};
+
+const MAX_MESSAGE_LEN: usize = 4096;
+
+/// Sends a transcript or translation. In groups it goes in an expandable quote
+/// so long transcripts stay short until someone taps them; DMs get plain text.
+pub async fn send_transcript(bot: &Bot, message: &Message, text: &str, task_type: TaskType) {
+    let text = text.trim();
+    // The length check runs on the plain text so an oversized transcript is
+    // sent as a file without the HTML markup.
+    if message.chat.is_private() || text.len() > MAX_MESSAGE_LEN {
+        safe_send(bot, message, Some(text), None, Some(task_type)).await;
+        return;
+    }
+
+    send_message(bot, message, &expandable_quote(text), Some(ParseMode::Html)).await;
+}
 
 pub async fn safe_send(
     bot: &Bot,
@@ -21,7 +37,7 @@ pub async fn safe_send(
     let content = content.unwrap_or("<no text>").trim().to_string();
 
     // Check the content length
-    if content.len() > 4096 {
+    if content.len() > MAX_MESSAGE_LEN {
         info!("Content is too long, sending as a file instead of multiple messages");
 
         // Decide label and filename based on provided task type
@@ -47,21 +63,22 @@ pub async fn safe_send(
             warn!("Failed to send document: {err}");
         }
     } else {
-        let mut bot_msg = bot
-            .send_message(message.chat.id, &content)
-            .reply_to(message.id)
-            .disable_notification(true);
+        send_message(bot, message, &content, parse_mode).await;
+    }
+}
 
-        if let Some(parse_mode) = parse_mode {
-            bot_msg = bot_msg.parse_mode(parse_mode);
-        }
+async fn send_message(bot: &Bot, message: &Message, content: &str, parse_mode: Option<ParseMode>) {
+    let mut bot_msg = bot
+        .send_message(message.chat.id, content)
+        .reply_to(message.id)
+        .disable_notification(true);
 
-        let bot_msg = bot_msg.await;
+    if let Some(parse_mode) = parse_mode {
+        bot_msg = bot_msg.parse_mode(parse_mode);
+    }
 
-        // Send the message and handle error
-        if let Err(err) = bot_msg {
-            warn!("Failed to send message: {err}");
-        }
+    if let Err(err) = bot_msg.await {
+        warn!("Failed to send message: {err}");
     }
 }
 
@@ -96,97 +113,19 @@ pub fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> TypingIndicatorGuard
     TypingIndicatorGuard { task }
 }
 
-pub fn get_api_keys() -> Vec<String> {
-    match env::var("GROQ_API_KEY") {
-        Ok(keys_str) => {
-            let keys: Vec<String> = keys_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            if keys.is_empty() {
-                warn!("GROQ_API_KEY is empty");
-                vec![]
-            } else {
-                info!("Loaded {} API key(s)", keys.len());
-                keys
-            }
-        }
-        Err(_) => {
-            warn!("GROQ_API_KEY environment variable not set");
-            vec![]
-        }
-    }
-}
-
-/// Convert model identifiers into a human-friendly display name.
-pub fn pretty_model_name(input: &str) -> String {
-    // Take the last path segment if a repository/path prefix is present
-    let segment = input.split('/').next_back().unwrap_or(input);
-
-    // Normalize separators to dashes, then split on dash
-    let normalized = segment.replace('_', "-");
-    let parts = normalized.split('-');
-
-    let mut out_parts: Vec<String> = Vec::new();
-    for p in parts {
-        let p = p.trim();
-        if p.is_empty() {
-            continue;
-        }
-
-        let lower = p.to_lowercase();
-
-        // Drop tokens that are purely numeric (e.g., "0905")
-        if lower.chars().all(|c| c.is_ascii_digit()) {
-            continue;
-        }
-
-        // Drop known boilerplate tokens
-        if lower == "instruct" {
-            continue;
-        }
-
-        // Capitalize first character, preserve the rest as-is
-        let mut chars = p.chars();
-        if let Some(first) = chars.next() {
-            let mut s = String::new();
-            s.extend(first.to_uppercase());
-            s.push_str(chars.as_str());
-            out_parts.push(s);
-        }
-    }
-
-    if out_parts.is_empty() {
-        // Fallback: just capitalize the whole input
-        let mut chars = input.chars();
-        if let Some(first) = chars.next() {
-            let mut s = String::new();
-            s.extend(first.to_uppercase());
-            s.push_str(chars.as_str());
-            return s;
-        }
-        return input.to_string();
-    }
-
-    out_parts.join(" ")
+fn expandable_quote(text: &str) -> String {
+    format!("<blockquote expandable>{}</blockquote>", html::escape(text))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::pretty_model_name;
+    use super::expandable_quote;
 
     #[test]
-    fn test_whisper() {
-        assert_eq!(pretty_model_name("whisper-large-v3"), "Whisper Large V3");
-    }
-
-    #[test]
-    fn test_moonshotai() {
+    fn quotes_and_escapes_transcripts() {
         assert_eq!(
-            pretty_model_name("moonshotai/kimi-k2-instruct-0905"),
-            "Kimi K2"
+            expandable_quote("<no text> & more"),
+            "<blockquote expandable>&lt;no text&gt; &amp; more</blockquote>"
         );
     }
 }
