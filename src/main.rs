@@ -264,15 +264,15 @@ async fn handle_command(
             let donation_message = "<b>Support duck_transcriber_bot</b>\n\
                 If you would like to help cover hosting costs, you can donate!\n\n\
                 <b>Bitcoin</b>\n\
-                <code>bc1q3dqnaygpaqkwm20hjq73g3kcc534cnt47wjlmu</code>\n\n\
+                <code>bc1qqvahwa3we2eymeku5489kpdk29pvddnn8yruzy</code>\n\n\
                 <b>Bitcoin Lightning</b>\n\
                 <code>duckyblender@strike.me</code>\n\n\
                 <b>Ethereum</b> (or any ERC20 token)\n\
-                <code>0x87d03a9DADd7927c1f058725307a1645BC406195</code>\n\n\
+                <code>0xd399774D0a969FC2ddF7D0D0f4f165638541408c</code>\n\n\
                 <b>Nano</b>\n\
                 <code>nano_3ociqkh6taqqu7q7h99oiyuasnkugm7bss87r1r4eph7dym3tmp3cebtosc5</code>\n\n\
                 <b>Monero</b>\n\
-                <code>84SdAF7JmMfQS3P1sSKasJHo8sQPjR3Xp58Vp1QWG4vMYdW26iZw6XuCMqL5FbtSQnUSKsGu6WtvXNMDEkwBtrE2VgKtNSK</code>\n\n\
+                <code>49afHkLvAEAXmdCqhWDCYvZiBD942ouwrhxbwto2HXzoGW877umX2aEFcVf8qzpawuFTBo28TK5Kg8sSzSQSXh7D7YoKEeK</code>\n\n\
                 Thank you for your support! 🦆";
             safe_send(
                 bot,

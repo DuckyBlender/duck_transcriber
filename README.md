@@ -121,11 +121,11 @@ The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in 
 
 If you find this bot useful and would like to help cover hosting costs, donations are greatly appreciated! You can donate using various cryptocurrencies:
 
-- **Bitcoin**: `bc1q3dqnaygpaqkwm20hjq73g3kcc534cnt47wjlmu`
+- **Bitcoin**: `bc1qqvahwa3we2eymeku5489kpdk29pvddnn8yruzy`
 - **Bitcoin Lightning**: `duckyblender@strike.me`
-- **Ethereum (or any ERC20 token)**: `0x87d03a9DADd7927c1f058725307a1645BC406195`
+- **Ethereum (or any ERC20 token)**: `0xd399774D0a969FC2ddF7D0D0f4f165638541408c`
 - **Nano**: `nano_3ociqkh6taqqu7q7h99oiyuasnkugm7bss87r1r4eph7dym3tmp3cebtosc5`
-- **Monero**: `84SdAF7JmMfQS3P1sSKasJHo8sQPjR3Xp58Vp1QWG4vMYdW26iZw6XuCMqL5FbtSQnUSKsGu6WtvXNMDEkwBtrE2VgKtNSK`
+- **Monero**: `49afHkLvAEAXmdCqhWDCYvZiBD942ouwrhxbwto2HXzoGW877umX2aEFcVf8qzpawuFTBo28TK5Kg8sSzSQSXh7D7YoKEeK`
 
 You can also use the `/donate` command in the bot to view these addresses directly.
 
