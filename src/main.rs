@@ -29,6 +29,7 @@ const MAX_DURATION: u32 = 30;
 const MAX_FILE_SIZE: u32 = 20;
 const USER_RATE_LIMIT_REACTION: &str = "🙊";
 const GROQ_RATE_LIMIT_REACTION: &str = "😴";
+const TRANSCRIPTION_FAILED_REACTION: &str = "💔";
 const TEST_LOCAL_WHISPER_USER_ID: u64 = 5_337_682_436;
 
 pub const BASE_URL: &str = "https://api.groq.com/openai/v1";
@@ -462,7 +463,7 @@ async fn handle_audio_message(
             Ok(transcription) => transcription,
             Err(e) => {
                 warn!("Failed to transcribe audio: {e}");
-                safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                set_reaction(bot, reply_context, TRANSCRIPTION_FAILED_REACTION).await;
                 return;
             }
         };
@@ -607,7 +608,8 @@ async fn handle_summarization(
                     return;
                 }
                 Err(e) => {
-                    safe_send(bot, reply_context, Some(&format!("Error: {e}")), None, None).await;
+                    warn!("Failed to translate audio for summarization: {e}");
+                    set_reaction(bot, reply_context, TRANSCRIPTION_FAILED_REACTION).await;
                     return;
                 }
             }

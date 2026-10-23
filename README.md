@@ -53,6 +53,7 @@ The bot can be added to groups to automatically transcribe voice messages. You c
   - Reacts with 🙊 emoji when per-user limit is exceeded
   - Falls back to local whisper.cpp when GroqCloud transcription/translation keys are missing or rate limited
   - Reacts with 😴 emoji when GroqCloud summarization rate limits are reached
+  - Reacts with 💔 emoji instead of replying when transcription or translation fails (GroqCloud and local whisper.cpp both unavailable)
   - Applies to all audio operations (transcribe, translate, summarize, caveman)
 
 ### GroqCloud Privacy
@@ -119,7 +120,7 @@ The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in 
 ## Error Handling & Reliability
 
 - **Robust Error Handling**: All errors are properly handled and logged
-- **Rate Limit Fallback**: Uses 🙊 for per-user limits, falls back to local whisper.cpp when GroqCloud transcription/translation keys are missing or rate limited, and uses 😴 when summarization rate limits cannot be served locally
+- **Rate Limit Fallback**: Uses 🙊 for per-user limits, falls back to local whisper.cpp when GroqCloud transcription/translation keys are missing or rate limited, uses 😴 when summarization rate limits cannot be served locally, and reacts with 💔 (no error message) when transcription fails entirely
 - **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 - **Automatic Retry**: Configurable API key rotation for transcription/translation failover, plus model and key fallback for summarization
 
