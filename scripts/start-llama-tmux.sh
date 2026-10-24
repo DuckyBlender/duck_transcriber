@@ -60,6 +60,9 @@ cmd=(
     --reasoning off
     # Prometheus metrics on /metrics, scraped by ~/services/monitoring.
     --metrics
+    # No prompt cache: prompts are short and rarely repeat, so it only filled
+    # RAM (up to 8 GiB by default). Each slot still reuses its last prompt.
+    --cache-ram 0
 )
 
 printf -v run_cmd "%q " "${cmd[@]}"
