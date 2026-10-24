@@ -1,7 +1,7 @@
 use crate::types::TaskType;
 use log::{info, warn};
 use teloxide::{
-    Bot,
+    Bot, RequestError,
     payloads::{SendDocumentSetters, SendMessageSetters},
     prelude::Requester,
     sugar::request::RequestReplyExt,
@@ -82,9 +82,7 @@ async fn send_message(bot: &Bot, message: &Message, content: &str, parse_mode: O
     }
 }
 
-/// Starts a background task that sends Telegram "typing" action every 5 seconds
-/// to indicate the bot is processing. Returns a guard that stops the heartbeat
-/// when dropped.
+/// Stops the "typing" heartbeat started by `start_typing_indicator` when dropped.
 pub struct TypingIndicatorGuard {
     task: tokio::task::JoinHandle<()>,
 }
@@ -95,13 +93,22 @@ impl Drop for TypingIndicatorGuard {
     }
 }
 
-pub fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> TypingIndicatorGuard {
-    let task = tokio::spawn(async move {
-        // Send immediately, then every 5 seconds
-        if let Err(err) = bot.send_chat_action(chat_id, ChatAction::Typing).await {
-            warn!("Failed to send typing indicator: {err}");
+/// Sends the "typing" action now and then every 5 seconds until the returned
+/// guard is dropped. Returns `None` when Telegram rejects the first one, which
+/// means the bot can't post in the chat (muted, read-only group, kicked), so
+/// there is no point transcribing anything for it.
+pub async fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> Option<TypingIndicatorGuard> {
+    match bot.send_chat_action(chat_id, ChatAction::Typing).await {
+        Err(RequestError::Api(err)) => {
+            info!("Skipping chat {chat_id}, the bot can't post there: {err}");
+            return None;
         }
+        // Network errors and flood waits say nothing about permissions.
+        Err(err) => warn!("Failed to send typing indicator: {err}"),
+        Ok(_) => {}
+    }
 
+    let task = tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(5)).await;
             if let Err(err) = bot.send_chat_action(chat_id, ChatAction::Typing).await {
@@ -110,7 +117,7 @@ pub fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> TypingIndicatorGuard
         }
     });
 
-    TypingIndicatorGuard { task }
+    Some(TypingIndicatorGuard { task })
 }
 
 fn expandable_quote(text: &str) -> String {

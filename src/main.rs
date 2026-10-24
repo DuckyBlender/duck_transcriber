@@ -514,6 +514,13 @@ async fn handle_audio_message(
         None => return,
     };
 
+    // Checked before the rate limit so a chat where the bot can't post doesn't
+    // use up the sender's quota.
+    let Some(typing_guard) = start_typing_indicator(bot.clone(), reply_context.chat.id).await
+    else {
+        return;
+    };
+
     if !consume_rate_limit(bot, reply_context, db, user_id).await {
         return;
     }
@@ -541,8 +548,6 @@ async fn handle_audio_message(
             return;
         }
     }
-
-    let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
     // Only /phonon uses Phonon; translations start from the whisper.cpp transcript.
     let transcript_type = match task_type {
@@ -603,6 +608,11 @@ async fn handle_summarization(
         None => return,
     };
 
+    let Some(typing_guard) = start_typing_indicator(bot.clone(), reply_context.chat.id).await
+    else {
+        return;
+    };
+
     if !consume_rate_limit(bot, reply_context, db, user_id).await {
         return;
     }
@@ -620,8 +630,6 @@ async fn handle_summarization(
         Err(e) => error!("Failed to read summary cache: {e}"),
         Ok(None) => {}
     }
-
-    let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
     let Some(transcript) =
         get_transcript(bot, db, &audio_info, reply_context, TaskType::Transcribe).await
