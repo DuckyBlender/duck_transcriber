@@ -15,7 +15,7 @@ use utils::{safe_send, send_transcript, start_typing_indicator};
 
 mod database;
 mod llm;
-mod parakeet;
+mod phonon;
 mod transcribe;
 mod types;
 mod utils;
@@ -172,12 +172,12 @@ async fn handle_command(
             )
             .await;
         }
-        BotCommand::Parakeet => {
+        BotCommand::Phonon => {
             handle_audio_command(
                 bot,
                 message,
-                AudioAction::Parakeet,
-                "Reply to an audio message or video note to transcribe it with Parakeet.",
+                AudioAction::Phonon,
+                "Reply to an audio message or video note to transcribe it with Phonon-2.5.",
                 db,
                 user_id,
             )
@@ -226,11 +226,11 @@ async fn handle_command(
                 • Message contents and user details are not stored in logs\n\
                 • Join @sussy_announcements for support/questions\n\
                 • Transcribes with {} running locally on an RTX 3050 Mobile\n\
-                • /parakeet transcribes with {} running locally on the CPU\n\
+                • /phonon transcribes with {} running locally on the CPU\n\
                 • Translates and summarizes with {} running locally on the same machine\n\
                 • Audio and text are never sent to any third-party service",
                 transcribe::WHISPER_MODEL,
-                parakeet::PARAKEET_MODEL,
+                phonon::PHONON_MODEL,
                 llm::LLM_MODEL
             );
             safe_send(
@@ -323,7 +323,7 @@ async fn handle_audio_command(
     };
 
     match action {
-        AudioAction::Transcribe | AudioAction::Parakeet | AudioAction::Translate => {
+        AudioAction::Transcribe | AudioAction::Phonon | AudioAction::Translate => {
             let task_type = action.task_type();
             handle_audio_message(target_message, message, bot, db, task_type, user_id).await;
         }
@@ -438,7 +438,7 @@ async fn consume_llm_quota(
 }
 
 /// Returns the transcript of the audio from the cache, or from Phonon for
-/// `TaskType::Parakeet` and whisper.cpp otherwise. An empty string means the
+/// `TaskType::Phonon` and whisper.cpp otherwise. An empty string means the
 /// audio has no speech. Returns `None` after it has already told the user why
 /// there is no transcript.
 async fn get_transcript(
@@ -478,7 +478,7 @@ async fn get_transcript(
     info!("Transcribing audio! Duration: {duration} | Mime: {mime:?}");
     let now = std::time::Instant::now();
     let result = match transcript_type {
-        TaskType::Parakeet => parakeet::transcribe(audio_bytes).await,
+        TaskType::Phonon => phonon::transcribe(audio_bytes).await,
         _ => transcribe::transcribe(audio_bytes, mime).await,
     };
     let transcript = match result {
@@ -544,9 +544,9 @@ async fn handle_audio_message(
 
     let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
-    // Only /parakeet uses Phonon; translations start from the whisper.cpp transcript.
+    // Only /phonon uses Phonon; translations start from the whisper.cpp transcript.
     let transcript_type = match task_type {
-        TaskType::Parakeet => TaskType::Parakeet,
+        TaskType::Phonon => TaskType::Phonon,
         _ => TaskType::Transcribe,
     };
     let Some(transcript) =

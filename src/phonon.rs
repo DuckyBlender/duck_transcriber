@@ -9,11 +9,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::process::Command;
 
-pub const PARAKEET_MODEL: &str = "Phonon-2.5 (Parakeet TDT 0.6B v3)";
-const DEFAULT_PARAKEET_URL: &str = "http://host.docker.internal:8082/v1/audio/transcriptions";
+pub const PHONON_MODEL: &str = "Phonon-2.5 (Parakeet TDT 0.6B v3)";
+const DEFAULT_PHONON_URL: &str = "http://host.docker.internal:8082/v1/audio/transcriptions";
 // The Phonon server decodes one request at a time on the CPU, at roughly 35x
 // realtime, so a 30 minute recording takes about a minute.
-const PARAKEET_TIMEOUT: Duration = Duration::from_secs(300);
+const PHONON_TIMEOUT: Duration = Duration::from_secs(300);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(60);
 
 static NEXT_UPLOAD_ID: AtomicU64 = AtomicU64::new(0);
@@ -21,8 +21,8 @@ static NEXT_UPLOAD_ID: AtomicU64 = AtomicU64::new(0);
 /// Transcribes audio with the local Phonon-2.5 server. Returns `None` when the
 /// audio has no speech.
 pub async fn transcribe(buffer: Vec<u8>) -> Result<Option<String>, TranscriptionError> {
-    let url = env::var("PARAKEET_URL").unwrap_or_else(|_| DEFAULT_PARAKEET_URL.to_string());
-    info!("Transcribing with {PARAKEET_MODEL} at {url}");
+    let url = env::var("PHONON_URL").unwrap_or_else(|_| DEFAULT_PHONON_URL.to_string());
+    info!("Transcribing with {PHONON_MODEL} at {url}");
 
     // The server only reads wav, flac, ogg and mp3, so video notes and m4a
     // files are converted first. Everything goes through ffmpeg so every
@@ -40,7 +40,7 @@ pub async fn transcribe(buffer: Vec<u8>) -> Result<Option<String>, Transcription
 
     let res = reqwest::Client::new()
         .post(url)
-        .timeout(PARAKEET_TIMEOUT)
+        .timeout(PHONON_TIMEOUT)
         .multipart(form)
         .send()
         .await
@@ -132,7 +132,7 @@ struct TempFile(PathBuf);
 impl TempFile {
     fn new() -> Self {
         let id = NEXT_UPLOAD_ID.fetch_add(1, Ordering::Relaxed);
-        Self(env::temp_dir().join(format!("duck-parakeet-{}-{id}", std::process::id())))
+        Self(env::temp_dir().join(format!("duck-phonon-{}-{id}", std::process::id())))
     }
 }
 
@@ -174,11 +174,11 @@ mod tests {
     }
 
     /// Needs ffmpeg and a running Phonon server:
-    /// `PARAKEET_URL=... PARAKEET_TEST_AUDIO=clip.ogg cargo test -- --ignored`
+    /// `PHONON_URL=... PHONON_TEST_AUDIO=clip.ogg cargo test -- --ignored`
     #[tokio::test]
     #[ignore]
     async fn transcribes_with_a_running_server() {
-        let path = env::var("PARAKEET_TEST_AUDIO").expect("PARAKEET_TEST_AUDIO not set");
+        let path = env::var("PHONON_TEST_AUDIO").expect("PHONON_TEST_AUDIO not set");
         let audio = std::fs::read(path).unwrap();
         let text = transcribe(audio).await.unwrap().unwrap();
         println!("{text}");
