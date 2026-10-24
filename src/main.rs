@@ -15,6 +15,7 @@ use utils::{safe_send, send_transcript, start_typing_indicator};
 
 mod database;
 mod llm;
+mod parakeet;
 mod transcribe;
 mod types;
 mod utils;
@@ -171,6 +172,17 @@ async fn handle_command(
             )
             .await;
         }
+        BotCommand::Parakeet => {
+            handle_audio_command(
+                bot,
+                message,
+                AudioAction::Parakeet,
+                "Reply to an audio message or video note to transcribe it with Parakeet.",
+                db,
+                user_id,
+            )
+            .await;
+        }
         BotCommand::Translate => {
             handle_audio_command(
                 bot,
@@ -214,9 +226,11 @@ async fn handle_command(
                 • Message contents and user details are not stored in logs\n\
                 • Join @sussy_announcements for support/questions\n\
                 • Transcribes with {} running locally on an RTX 3050 Mobile\n\
+                • /parakeet transcribes with {} running locally on the CPU\n\
                 • Translates and summarizes with {} running locally on the same machine\n\
                 • Audio and text are never sent to any third-party service",
                 transcribe::WHISPER_MODEL,
+                parakeet::PARAKEET_MODEL,
                 llm::LLM_MODEL
             );
             safe_send(
@@ -309,7 +323,7 @@ async fn handle_audio_command(
     };
 
     match action {
-        AudioAction::Transcribe | AudioAction::Translate => {
+        AudioAction::Transcribe | AudioAction::Parakeet | AudioAction::Translate => {
             let task_type = action.task_type();
             handle_audio_message(target_message, message, bot, db, task_type, user_id).await;
         }
@@ -423,17 +437,19 @@ async fn consume_llm_quota(
     }
 }
 
-/// Returns the transcript of the audio from the cache or whisper.cpp. An empty
-/// string means the audio has no speech. Returns `None` after it has already
-/// told the user why there is no transcript.
+/// Returns the transcript of the audio from the cache, or from Phonon for
+/// `TaskType::Parakeet` and whisper.cpp otherwise. An empty string means the
+/// audio has no speech. Returns `None` after it has already told the user why
+/// there is no transcript.
 async fn get_transcript(
     bot: &Bot,
     db: &Arc<Database>,
     audio_info: &AudioFileInfo,
     reply_context: &Message,
+    transcript_type: TaskType,
 ) -> Option<String> {
     let cache_key = audio_info.unique_id.to_string();
-    match db.get_cached(&cache_key, &TaskType::Transcribe).await {
+    match db.get_cached(&cache_key, &transcript_type).await {
         Ok(Some(transcript)) => {
             info!(
                 "Transcript found in cache for unique_file_id: {}",
@@ -461,7 +477,11 @@ async fn get_transcript(
 
     info!("Transcribing audio! Duration: {duration} | Mime: {mime:?}");
     let now = std::time::Instant::now();
-    let transcript = match transcribe::transcribe(audio_bytes, mime).await {
+    let result = match transcript_type {
+        TaskType::Parakeet => parakeet::transcribe(audio_bytes).await,
+        _ => transcribe::transcribe(audio_bytes, mime).await,
+    };
+    let transcript = match result {
         Ok(transcript) => transcript.unwrap_or_default().trim().to_string(),
         Err(e) => {
             warn!("Failed to transcribe audio: {e}");
@@ -472,7 +492,7 @@ async fn get_transcript(
     info!("Transcribed audio in {}ms", now.elapsed().as_millis());
 
     if let Err(e) = db
-        .set_cached(&cache_key, &TaskType::Transcribe, &transcript)
+        .set_cached(&cache_key, &transcript_type, &transcript)
         .await
     {
         error!("Failed to cache transcript: {e}");
@@ -524,7 +544,14 @@ async fn handle_audio_message(
 
     let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
-    let Some(transcript) = get_transcript(bot, db, &audio_info, reply_context).await else {
+    // Only /parakeet uses Phonon; translations start from the whisper.cpp transcript.
+    let transcript_type = match task_type {
+        TaskType::Parakeet => TaskType::Parakeet,
+        _ => TaskType::Transcribe,
+    };
+    let Some(transcript) =
+        get_transcript(bot, db, &audio_info, reply_context, transcript_type).await
+    else {
         return;
     };
 
@@ -596,7 +623,9 @@ async fn handle_summarization(
 
     let typing_guard = start_typing_indicator(bot.clone(), reply_context.chat.id);
 
-    let Some(transcript) = get_transcript(bot, db, &audio_info, reply_context).await else {
+    let Some(transcript) =
+        get_transcript(bot, db, &audio_info, reply_context, TaskType::Transcribe).await
+    else {
         return;
     };
 

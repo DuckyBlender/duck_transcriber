@@ -22,6 +22,7 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
 - `/start`: Initializes the bot and provides a welcome message
 - `/help`: Provides information on how to use the bot and its features
 - `/transcribe`: Transcribes the voice, audio, or video note in the reply message
+- `/parakeet`: Transcribes the voice, audio, or video note in the reply message with Parakeet (Phonon-2.5) instead of Whisper
 - `/translate` (aliases: `english`, `en`): Translates (into English) the voice, audio, or video note in the reply message
 - `/summarize`: Summarizes the voice, audio, or video note in the reply message
 - `/caveman`: Summarizes the voice, audio, or video note in a "caveman" style
@@ -34,6 +35,7 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
 - **Language**: Rust with async/await
 - **Telegram API**: Built using the `teloxide` crate
 - **Transcription**: whisper.cpp server (`large-v3-turbo`) over HTTP with `reqwest` and rustls
+- **`/parakeet`**: [Phonon-2.5](https://huggingface.co/FermionResearch/Phonon-2.5), a 156 MB low-bit build of NVIDIA's Parakeet TDT 0.6B v3 for 25 languages, served by `fermion serve` on the CPU and kept in RAM (about 1.2 GB). The bot converts the audio to 16 kHz mono WAV with ffmpeg first, because the server only reads wav, flac, ogg and mp3. Its transcripts are cached separately from whisper.cpp's
 - **Translation & summaries**: llama.cpp server (`NVIDIA-Nemotron-3.5-Bolt-E4B` `UD-Q4_K_XL` GGUF from Unsloth) through its OpenAI-compatible chat completions endpoint, with reasoning turned off
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
@@ -59,25 +61,32 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
 - `DATABASE_URL`: In-memory SQLite database URL for SQLx compile-time query checking and SQLx CLI commands.
 - `WHISPER_LOCAL_URL`: whisper.cpp inference endpoint (default: `http://host.docker.internal:8080/inference`)
 - `LLM_URL`: llama.cpp chat completions endpoint (default: `http://host.docker.internal:8081/v1/chat/completions`)
+- `PARAKEET_URL`: Phonon transcription endpoint for `/parakeet` (default: `http://host.docker.internal:8082/v1/audio/transcriptions`)
 
 ## Deployment
 
-The bot needs two servers running on the host: whisper.cpp and llama.cpp. They
-share one GPU, so start whisper.cpp first. llama-server then fits as many model
-layers into the VRAM that is left as it can and keeps the rest in RAM.
+The bot needs three servers running on the host: whisper.cpp, llama.cpp and
+Phonon. whisper.cpp and llama.cpp share one GPU, so start whisper.cpp first.
+llama-server then fits as many model layers into the VRAM that is left as it
+can and keeps the rest in RAM. Phonon runs on the CPU only.
 
 ```bash
 scripts/start-whisper-tmux.sh   # whisper.cpp on :8080
 scripts/start-llama-tmux.sh     # llama.cpp on :8081, waits for whisper.cpp
+scripts/start-phonon-tmux.sh    # Phonon-2.5 on :8082, for /parakeet
 ```
 
 `start-llama-tmux.sh` expects a CUDA build of llama.cpp in `~/llama.cpp`
 (override with `LLAMA_CPP_DIR`) and downloads the model GGUF on first start.
-To start both after a reboot, add them to the crontab in this order:
+`start-phonon-tmux.sh` installs Phonon into `~/phonon/venv` with
+[uv](https://docs.astral.sh/uv/) on first start (override with `PHONON_DIR`);
+the model downloads on the server's first start.
+To start them after a reboot, add them to the crontab in this order:
 
 ```
 @reboot /path/to/duck_transcriber/scripts/start-whisper-tmux.sh
 @reboot /path/to/duck_transcriber/scripts/start-llama-tmux.sh
+@reboot /path/to/duck_transcriber/scripts/start-phonon-tmux.sh
 ```
 
 ### Local Development
@@ -90,7 +99,9 @@ To start both after a reboot, add them to the crontab in this order:
    DATABASE_URL=sqlite::memory:
    WHISPER_LOCAL_URL=http://localhost:8080/inference
    LLM_URL=http://localhost:8081/v1/chat/completions
+   PARAKEET_URL=http://localhost:8082/v1/audio/transcriptions
    ```
+   `/parakeet` also needs `ffmpeg` on the `PATH`.
 4. **Run the bot**:
    ```bash
    cargo run --release
@@ -99,7 +110,7 @@ To start both after a reboot, add them to the crontab in this order:
 ### Docker
 
 Build and run the bot in Docker with an optimized multi-stage build. whisper.cpp
-and llama.cpp are not part of Docker or compose; start them on the host first
+llama.cpp and Phonon are not part of Docker or compose; start them on the host first
 (see above), then start duck_transcriber:
 
 ```bash
@@ -107,7 +118,7 @@ docker compose up -d
 ```
 
 The compose file maps `host.docker.internal` to the host gateway so the
-container can call both host servers.
+container can call the host servers.
 
 The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in faster rebuilds.
 

@@ -8,6 +8,7 @@ services:
     environment:
       - WHISPER_LOCAL_URL=http://host.docker.internal:8080/inference
       - LLM_URL=http://host.docker.internal:8081/v1/chat/completions
+      - PARAKEET_URL=http://host.docker.internal:8082/v1/audio/transcriptions
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:

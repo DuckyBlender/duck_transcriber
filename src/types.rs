@@ -12,6 +12,10 @@ pub enum BotCommand {
     Start,
     #[command(description = "transcribe the replied audio")]
     Transcribe,
+    #[command(
+        description = "transcribe the replied audio with Parakeet (Phonon-2.5) instead of Whisper"
+    )]
+    Parakeet,
     #[command(description = "transcribe & translate the replied audio file in English.", aliases = ["english", "en"])]
     Translate,
     #[command(description = "summarize the replied audio message")]
@@ -28,6 +32,7 @@ pub enum BotCommand {
 
 pub enum AudioAction {
     Transcribe,
+    Parakeet,
     Translate,
     Summarize(SummarizeMethod),
 }
@@ -36,6 +41,7 @@ impl AudioAction {
     pub fn task_type(&self) -> TaskType {
         match self {
             AudioAction::Transcribe => TaskType::Transcribe,
+            AudioAction::Parakeet => TaskType::Parakeet,
             AudioAction::Translate => TaskType::Translate,
             AudioAction::Summarize(SummarizeMethod::Default) => TaskType::Summarize,
             AudioAction::Summarize(SummarizeMethod::Caveman) => TaskType::Caveman,
@@ -111,6 +117,8 @@ pub enum AudioSourceKind {
 pub enum TaskType {
     #[strum(to_string = "transcribe")]
     Transcribe,
+    #[strum(to_string = "parakeet")]
+    Parakeet,
     #[strum(to_string = "translate")]
     Translate,
     #[strum(to_string = "summarize")]

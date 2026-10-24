@@ -42,7 +42,9 @@ pub async fn safe_send(
 
         // Decide label and filename based on provided task type
         let (label, filename) = match task_type {
-            Some(TaskType::Transcribe) => ("transcript", "transcript.txt"),
+            Some(TaskType::Transcribe) | Some(TaskType::Parakeet) => {
+                ("transcript", "transcript.txt")
+            }
             Some(TaskType::Translate) => ("translation", "translation.txt"),
             Some(TaskType::Summarize) | Some(TaskType::Caveman) => ("summary", "summary.txt"),
             None => ("content", "content.txt"),

@@ -28,6 +28,7 @@ struct DatabaseState {
 #[derive(Default)]
 struct CacheEntry {
     transcribe: Option<CachedValue>,
+    parakeet: Option<CachedValue>,
     translate: Option<CachedValue>,
     summarize: Option<CachedValue>,
     caveman: Option<CachedValue>,
@@ -88,6 +89,7 @@ impl Database {
 
         let cached_value = match task_type {
             TaskType::Transcribe => entry.transcribe.as_ref(),
+            TaskType::Parakeet => entry.parakeet.as_ref(),
             TaskType::Translate => entry.translate.as_ref(),
             TaskType::Summarize => entry.summarize.as_ref(),
             TaskType::Caveman => entry.caveman.as_ref(),
@@ -114,6 +116,7 @@ impl Database {
 
         match task_type {
             TaskType::Transcribe => entry.transcribe = Some(cached_value),
+            TaskType::Parakeet => entry.parakeet = Some(cached_value),
             TaskType::Translate => entry.translate = Some(cached_value),
             TaskType::Summarize => entry.summarize = Some(cached_value),
             TaskType::Caveman => entry.caveman = Some(cached_value),
@@ -223,12 +226,14 @@ impl Database {
         let cache_before = state.cache.len();
         for entry in state.cache.values_mut() {
             clear_expired(&mut entry.transcribe, now);
+            clear_expired(&mut entry.parakeet, now);
             clear_expired(&mut entry.translate, now);
             clear_expired(&mut entry.summarize, now);
             clear_expired(&mut entry.caveman, now);
         }
         state.cache.retain(|_, entry| {
             entry.transcribe.is_some()
+                || entry.parakeet.is_some()
                 || entry.translate.is_some()
                 || entry.summarize.is_some()
                 || entry.caveman.is_some()
@@ -271,7 +276,9 @@ fn clear_expired(value: &mut Option<CachedValue>, now: i64) {
 fn cache_expiration_seconds(task_type: &TaskType) -> i64 {
     match task_type {
         TaskType::Summarize | TaskType::Caveman => SUMMARY_CACHE_EXPIRATION_HOURS * 3600,
-        TaskType::Transcribe | TaskType::Translate => CACHE_EXPIRATION_DAYS * 24 * 3600,
+        TaskType::Transcribe | TaskType::Parakeet | TaskType::Translate => {
+            CACHE_EXPIRATION_DAYS * 24 * 3600
+        }
     }
 }
 
