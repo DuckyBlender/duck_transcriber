@@ -58,6 +58,8 @@ cmd=(
     --parallel "$PARALLEL"
     --flash-attn on
     --reasoning off
+    # Prometheus metrics on /metrics, scraped by ~/services/monitoring.
+    --metrics
 )
 
 printf -v run_cmd "%q " "${cmd[@]}"
