@@ -9,7 +9,8 @@ A Telegram bot that transcribes, translates, and summarizes voice messages. Ever
 ## How It Works
 
 1. Send a voice, audio, or video note to the bot
-2. The bot transcribes it with a local whisper.cpp server
+2. The bot decodes it with ffmpeg, measures its real length from the decoded
+   audio, and transcribes it with a local whisper.cpp server
 3. For `/translate`, `/summarize` and `/caveman`, the transcript goes to a local
    llama.cpp server, which translates it into English or summarizes it straight
    from the original language
@@ -35,7 +36,7 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
 - **Language**: Rust with async/await
 - **Telegram API**: Built using the `teloxide` crate
 - **Transcription**: whisper.cpp server (`large-v3-turbo`) over HTTP with `reqwest` and rustls
-- **`/phonon`**: [Phonon-2.5](https://huggingface.co/FermionResearch/Phonon-2.5), a 156 MB low-bit build of NVIDIA's Parakeet TDT 0.6B v3 for 25 languages, served by `fermion serve` on the CPU and kept in RAM (about 1.2 GB). The bot converts the audio to 16 kHz mono WAV with ffmpeg first, because the server only reads wav, flac, ogg and mp3. Its transcripts are cached separately from whisper.cpp's
+- **`/phonon`**: [Phonon-2.5](https://huggingface.co/FermionResearch/Phonon-2.5), a 156 MB low-bit build of NVIDIA's Parakeet TDT 0.6B v3 for 25 languages, served by `fermion serve` on the CPU and kept in RAM (about 1.2 GB). It gets the same decoded 16 kHz mono WAV as whisper.cpp. Its transcripts are cached separately from whisper.cpp's
 - **Translation & summaries**: llama.cpp server (`NVIDIA-Nemotron-3.5-Bolt-E4B` `UD-Q4_K_XL` GGUF from Unsloth) through its OpenAI-compatible chat completions endpoint, with reasoning turned off
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
@@ -52,13 +53,13 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
   - Per user: 15 requests per hour and 50 per day; reacts with 🙊 when exceeded
   - Whole bot: 100 requests per hour; reacts with 😴 when reached
   - `/translate` accepts recordings up to 10 minutes (translating takes about 15 seconds per minute of audio); summaries accept the full 30 minutes
+  - Lengths are measured from the decoded audio, never taken from Telegram, because the sender's app sets that number and it can be 0 or wrong
   - Only actual llama.cpp requests count: cached results and recordings without speech are free
 - **Failures**: Reacts with 💔 emoji instead of replying when whisper.cpp or llama.cpp can't produce a result
 
 ## Environment Variables
 
 - `TELEGRAM_BOT_TOKEN`: The token for your Telegram bot
-- `DATABASE_URL`: In-memory SQLite database URL for SQLx compile-time query checking and SQLx CLI commands.
 - `WHISPER_LOCAL_URL`: whisper.cpp inference endpoint (default: `http://host.docker.internal:8080/inference`)
 - `LLM_URL`: llama.cpp chat completions endpoint (default: `http://host.docker.internal:8081/v1/chat/completions`)
 - `PHONON_URL`: Phonon transcription endpoint for `/phonon` (default: `http://host.docker.internal:8082/v1/audio/transcriptions`)
@@ -96,12 +97,12 @@ To start them after a reboot, add them to the crontab in this order:
 3. **Create `.env` file**:
    ```bash
    TELEGRAM_BOT_TOKEN=your_bot_token
-   DATABASE_URL=sqlite::memory:
    WHISPER_LOCAL_URL=http://localhost:8080/inference
    LLM_URL=http://localhost:8081/v1/chat/completions
    PHONON_URL=http://localhost:8082/v1/audio/transcriptions
    ```
-   The bot also needs `ffmpeg` and `ffprobe` on the `PATH`: `/phonon` converts audio with ffmpeg, and ffprobe measures recordings that Telegram reports as 0 seconds long.
+   The bot also needs `ffmpeg` on the `PATH`: every recording is decoded with it
+   before it is measured and transcribed.
 4. **Run the bot**:
    ```bash
    cargo run --release
@@ -126,7 +127,6 @@ The Dockerfile uses `cargo-chef` for efficient dependency caching, resulting in 
 
 - **Robust Error Handling**: All errors are properly handled and logged
 - **Quiet Failures**: Uses 🙊 for per-user limits, 😴 when the whole bot is at its LLM limit, and reacts with 💔 (no error message) when transcription, translation or summarization fails, so a server outage doesn't flood groups with error replies
-- **Type-Safe Errors**: Uses a custom `TranscriptionError` enum for clean error categorization
 
 ## Support & Donations
 

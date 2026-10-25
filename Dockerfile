@@ -15,15 +15,13 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-# Use SQLx offline mode for compile-time query checking
-ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 # Stage 4: Runtime - minimal final image
 # Use rust:1-slim base to ensure GLIBC compatibility
 FROM rust:1-slim AS runtime
-# ffmpeg converts audio for /phonon, since the Phonon server only reads wav, flac,
-# ogg and mp3. Its ffprobe measures recordings that Telegram reports as 0 seconds.
+# ffmpeg decodes every recording to the 16 kHz mono WAV that whisper.cpp and Phonon
+# get, which is also how the bot measures its length.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
