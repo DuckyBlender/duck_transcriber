@@ -15,6 +15,7 @@ use utils::{safe_send, send_transcript, start_typing_indicator};
 
 mod database;
 mod llm;
+mod media;
 mod phonon;
 mod transcribe;
 mod types;
@@ -368,12 +369,14 @@ fn validate_file_size(audio_info: &AudioFileInfo) -> Result<(), String> {
 
 fn validate_audio_limits(audio_info: &AudioFileInfo) -> Result<(), String> {
     validate_file_size(audio_info)?;
+    validate_duration(audio_info.duration)
+}
 
-    if audio_info.duration > MAX_DURATION * 60 {
+fn validate_duration(seconds: u32) -> Result<(), String> {
+    if seconds > MAX_DURATION * 60 {
         warn!("The audio message is above {MAX_DURATION} minutes!");
         return Err(format!("Duration is above {MAX_DURATION} minutes"));
     }
-
     Ok(())
 }
 
@@ -474,6 +477,20 @@ async fn get_transcript(
             return None;
         }
     };
+
+    // Telegram reports 0 seconds when the sender's app didn't set a length,
+    // which would let a long recording past the duration limit.
+    let duration = if duration == 0 {
+        let measured = media::probe_duration(&audio_bytes).await;
+        info!("Telegram reported a duration of 0s, ffprobe measured {measured:?}s");
+        measured.unwrap_or(0)
+    } else {
+        duration
+    };
+    if let Err(error_msg) = validate_duration(duration) {
+        safe_send(bot, reply_context, Some(&error_msg), None, None).await;
+        return None;
+    }
 
     info!("Transcribing audio! Duration: {duration} | Mime: {mime:?}");
     let now = std::time::Instant::now();

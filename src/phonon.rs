@@ -1,11 +1,10 @@
+use crate::media::TempFile;
 use crate::transcribe::truncate_for_log;
 use crate::types::TranscriptionError;
 use log::{error, info};
 use serde::Deserialize;
 use std::env;
-use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::process::Command;
 
@@ -15,8 +14,6 @@ const DEFAULT_PHONON_URL: &str = "http://host.docker.internal:8082/v1/audio/tran
 // realtime, so a 30 minute recording takes about a minute.
 const PHONON_TIMEOUT: Duration = Duration::from_secs(300);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(60);
-
-static NEXT_UPLOAD_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Transcribes audio with the local Phonon-2.5 server. Returns `None` when the
 /// audio has no speech.
@@ -125,23 +122,6 @@ async fn to_wav(buffer: Vec<u8>) -> Result<Vec<u8>, TranscriptionError> {
     Ok(output.stdout)
 }
 
-/// A temporary file that is deleted when dropped, so a failed conversion never
-/// leaves user audio behind.
-struct TempFile(PathBuf);
-
-impl TempFile {
-    fn new() -> Self {
-        let id = NEXT_UPLOAD_ID.fetch_add(1, Ordering::Relaxed);
-        Self(env::temp_dir().join(format!("duck-phonon-{}-{id}", std::process::id())))
-    }
-}
-
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
 /// The `json` response of the OpenAI-compatible transcription endpoint.
 #[derive(Debug, Deserialize)]
 struct PhononResponse {
@@ -162,15 +142,6 @@ mod tests {
     #[test]
     fn rejects_error_bodies() {
         assert!(parse_response("<html>502</html>").is_err());
-    }
-
-    #[test]
-    fn temp_file_is_removed_on_drop() {
-        let file = TempFile::new();
-        std::fs::write(&file.0, b"audio").unwrap();
-        let path = file.0.clone();
-        drop(file);
-        assert!(!path.exists());
     }
 
     /// Needs ffmpeg and a running Phonon server:

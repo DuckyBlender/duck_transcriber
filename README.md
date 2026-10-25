@@ -101,7 +101,7 @@ To start them after a reboot, add them to the crontab in this order:
    LLM_URL=http://localhost:8081/v1/chat/completions
    PHONON_URL=http://localhost:8082/v1/audio/transcriptions
    ```
-   `/phonon` also needs `ffmpeg` on the `PATH`.
+   The bot also needs `ffmpeg` and `ffprobe` on the `PATH`: `/phonon` converts audio with ffmpeg, and ffprobe measures recordings that Telegram reports as 0 seconds long.
 4. **Run the bot**:
    ```bash
    cargo run --release

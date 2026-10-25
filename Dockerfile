@@ -22,7 +22,8 @@ RUN cargo build --release
 # Stage 4: Runtime - minimal final image
 # Use rust:1-slim base to ensure GLIBC compatibility
 FROM rust:1-slim AS runtime
-# ffmpeg converts audio for /phonon; the Phonon server only reads wav, flac, ogg and mp3.
+# ffmpeg converts audio for /phonon, since the Phonon server only reads wav, flac,
+# ogg and mp3. Its ffprobe measures recordings that Telegram reports as 0 seconds.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
