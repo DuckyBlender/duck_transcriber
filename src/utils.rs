@@ -21,8 +21,9 @@ const MAX_LOGGED_BODY_CHARS: usize = 2000;
 pub async fn send_result(bot: &Bot, message: &Message, text: &str, task: TaskType) {
     let text = text.trim();
     // The length check runs on the plain text so an oversized result is sent as
-    // a file without the HTML markup.
-    if text.len() > MAX_MESSAGE_LEN {
+    // a file without the HTML markup. Telegram counts UTF-16 code units, not
+    // bytes.
+    if text.encode_utf16().count() > MAX_MESSAGE_LEN {
         let label = match task {
             TaskType::Transcribe | TaskType::Phonon => "transcript",
             TaskType::Translate => "translation",
