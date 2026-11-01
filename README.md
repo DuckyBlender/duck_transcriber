@@ -41,7 +41,7 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
 - **Telegram API**: Built using the `teloxide` crate
 - **Transcription**: whisper.cpp server (`large-v3-turbo`) over HTTP with `reqwest` and rustls
 - **`/phonon`**: [Phonon-2.5](https://huggingface.co/FermionResearch/Phonon-2.5), a 156 MB low-bit build of NVIDIA's Parakeet TDT 0.6B v3 for 25 languages, served by `fermion serve` on the CPU and kept in RAM (about 1.2 GB). It gets the same decoded 16 kHz mono WAV as whisper.cpp. Its transcripts are cached separately from whisper.cpp's
-- **`/enhance`**: [NVIDIA RE-USE](https://huggingface.co/nvidia/RE-USE), a 9.6M parameter speech enhancement model, served by `scripts/reuse_server.py` on the GPU. It runs NVIDIA's own model code in fp32 and, like NVIDIA's `inference_chunk.py`, cuts recordings into chunks that overlap by half, because the model was trained on clips under 10 seconds. The chunks are 2 seconds instead of NVIDIA's 5: the model's weights are only 38 MB, but a 5 second chunk needs about 1.1 GB of VRAM while it runs, more than whisper.cpp and llama.cpp leave on a 4 GB GPU. With 2 second chunks the server uses about 570 MB of VRAM while it works and 165 MB idle, and enhances at about 1.5x realtime It gets the same decoded 16 kHz mono WAV as whisper.cpp; the result is sent back as an Ogg Opus voice message, and its Telegram file id is cached for 7 days (until the bot restarts), so the same recording isn't enhanced again in that time. The bot sends RE-USE one recording at a time and lets two more wait; any more get 😴 right away
+- **`/enhance`**: [NVIDIA RE-USE](https://huggingface.co/nvidia/RE-USE), a 9.6M parameter speech enhancement model, served by `scripts/reuse_server.py` on the GPU. It runs NVIDIA's own model code in fp32 and, like NVIDIA's `inference_chunk.py`, cuts recordings into chunks that overlap by half, because the model was trained on clips under 10 seconds. Recordings are decoded to 32 kHz mono WAV for it: on noisy test clips, 32 kHz scored higher than 16 kHz on every clip and restores what's above 8 kHz as well as 48 kHz, at two thirds of 48 kHz's GPU time. The chunks are 2 seconds instead of NVIDIA's 5: the model's weights are only 38 MB, but its working memory grows with the chunk, and at 32 kHz 2 second chunks use about 950 MB of VRAM while it works (165 MB idle), within the 1.5 GB llama.cpp leaves free. It enhances at about 0.7x realtime, and transcriptions take about twice as long while it runs; the result is sent back as an Ogg Opus voice message, and its Telegram file id is cached for 7 days (until the bot restarts), so the same recording isn't enhanced again in that time. The bot sends RE-USE one recording at a time and lets two more wait; any more get 😴 right away
 - **Translation & summaries**: llama.cpp server (`NVIDIA-Nemotron-3.5-Bolt-E4B` `UD-Q4_K_XL` GGUF from Unsloth) through its OpenAI-compatible chat completions endpoint, with reasoning turned off
 - **TLS**: Uses rustls everywhere (no OpenSSL dependencies)
 - **Logging**: Dual output to stdout and `bot.log` file using fern
@@ -60,10 +60,10 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
   - `/translate` accepts recordings up to 10 minutes (translating takes about 15 seconds per minute of audio); summaries accept the full 30 minutes
   - Lengths are measured from the decoded audio, never taken from Telegram, because the sender's app sets that number and it can be 0 or wrong
   - Only actual llama.cpp requests count: cached results and recordings without speech are free
-- **`/enhance` Limits**: RE-USE holds the shared GPU for about 40 seconds per minute of audio, during which transcriptions wait, so it has the strictest limits
+- **`/enhance` Limits**: RE-USE holds the shared GPU for about 85 seconds per minute of audio, during which transcriptions take about twice as long, so it has the strictest limits
   - Per user: 5 recordings per hour and 15 per day; reacts with 🙊 when exceeded
   - Whole bot: 12 recordings per hour; reacts with 😴 when reached
-  - Recordings up to 2 minutes
+  - Recordings up to 1 minute
   - Cached results and refused recordings don't count
 - **Failures**: Reacts with 💔 emoji instead of replying when whisper.cpp, llama.cpp or RE-USE can't produce a result
 
@@ -80,8 +80,11 @@ The bot can be added to groups to automatically transcribe voice messages. In gr
 The bot needs four servers running on the host: whisper.cpp, llama.cpp,
 Phonon and RE-USE. whisper.cpp, llama.cpp and RE-USE share one GPU, so start
 whisper.cpp first. llama-server then fits as many model layers into the VRAM
-that is left as it can and keeps the rest in RAM, and RE-USE starts once
-llama-server has loaded. Phonon runs on the CPU only.
+that is left as it can and keeps the rest in RAM, leaving 1.5 GB free
+(`LLAMA_FIT_TARGET`, in MiB) for RE-USE, which starts once llama-server has
+loaded. whisper.cpp runs large-v3-turbo with 8-bit weights (`q8_0`), which
+need 1.2 GB of VRAM instead of 1.9 GB and transcribe as accurately as f16.
+Phonon runs on the CPU only.
 
 ```bash
 scripts/start-whisper-tmux.sh   # whisper.cpp on :8080

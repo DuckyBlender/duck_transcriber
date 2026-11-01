@@ -17,6 +17,9 @@ PARALLEL="${LLAMA_PARALLEL:-2}"
 # fits as many layers as the free VRAM allows at startup.
 WHISPER_PORT="${WHISPER_PORT:-8080}"
 WHISPER_WAIT_SECONDS="${WHISPER_WAIT_SECONDS:-180}"
+# VRAM llama-server leaves free when it fits its layers, for the RE-USE server
+# that starts after it. RE-USE peaks at 1.3 GB at 48 kHz in 2 second chunks.
+FIT_TARGET="${LLAMA_FIT_TARGET:-1536}"
 
 if ! command -v tmux >/dev/null 2>&1; then
     echo "tmux is required but was not found in PATH" >&2
@@ -57,6 +60,7 @@ cmd=(
     --ctx-size "$CTX_SIZE"
     --parallel "$PARALLEL"
     --flash-attn on
+    --fit-target "$FIT_TARGET"
     --reasoning off
     # Prometheus metrics on /metrics, scraped by ~/services/monitoring.
     --metrics

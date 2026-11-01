@@ -50,7 +50,9 @@ mod tests {
     async fn transcribes_with_a_running_server() {
         let path = env::var("PHONON_TEST_AUDIO").expect("PHONON_TEST_AUDIO not set");
         let audio = std::fs::read(path).unwrap();
-        let wav = crate::media::to_wav(audio, 1800).await.unwrap();
+        let wav = crate::media::to_wav(audio, crate::media::SPEECH_RATE, 1800)
+            .await
+            .unwrap();
         let text = transcribe(wav.bytes).await.unwrap();
         println!("{text}");
         assert!(!text.trim().is_empty());

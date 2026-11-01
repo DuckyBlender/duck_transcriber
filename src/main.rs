@@ -36,15 +36,16 @@ const LLM_LIMITS: QuotaLimits = QuotaLimits {
 // Translating writes out the whole transcript at ~12 tokens/s, about 15 s per
 // minute of audio; 10 minutes stays well inside the LLM timeout.
 const MAX_TRANSLATE_DURATION: u32 = 10;
-// RE-USE takes about 40 seconds of the shared GPU per minute of audio, during
-// which transcriptions wait, so /enhance is limited the most: 12 recordings of
-// up to 2 minutes an hour hold the GPU for about a quarter of the time.
+// RE-USE takes about 85 seconds of the shared GPU per minute of audio at
+// 32 kHz, during which transcriptions take about twice as long, so /enhance is
+// limited the most: 12 recordings of up to a minute an hour hold the GPU for
+// about a quarter of the time.
 const ENHANCE_LIMITS: QuotaLimits = QuotaLimits {
     per_user_hour: 5,
     per_user_day: 15,
     global_hour: 12,
 };
-const MAX_ENHANCE_DURATION: u32 = 2;
+const MAX_ENHANCE_DURATION: u32 = 1;
 // Reacted when the bot as a whole has hit the LLM or /enhance limit.
 const BUSY_REACTION: &str = "😴";
 // Reacted instead of replying when whisper.cpp, llama.cpp or RE-USE can't
@@ -206,7 +207,7 @@ fn limits_text() -> String {
         <b>/enhance</b>\n\
         • <b>Per User:</b> {} per hour, {} per day\n\
         • <b>Whole Bot:</b> {} per hour\n\
-        • Recordings up to {} minutes\n\n\
+        • Recordings up to {}\n\n\
         Results that are already cached don't count. Everything runs on one local GPU, so the AI commands are limited to keep the bot fast for everyone.\n\n\
         <b>Reactions</b>\n\
         • 🙊 You hit your limit\n\
@@ -221,7 +222,7 @@ fn limits_text() -> String {
         ENHANCE_LIMITS.per_user_hour,
         ENHANCE_LIMITS.per_user_day,
         ENHANCE_LIMITS.global_hour,
-        MAX_ENHANCE_DURATION
+        minutes(MAX_ENHANCE_DURATION)
     )
 }
 
@@ -369,7 +370,7 @@ async fn run_enhance(
     }
 
     let audio = download(bot, file).await?;
-    let wav = media::to_wav(audio, max_seconds(TaskType::Enhance))
+    let wav = media::to_wav(audio, enhance::SAMPLE_RATE, max_seconds(TaskType::Enhance))
         .await
         .ok_or(Stop::React(FAILED_REACTION))?;
     check_length(TaskType::Enhance, wav.seconds).map_err(Stop::Reply)?;
@@ -438,7 +439,7 @@ async fn get_transcript(
     }
 
     let audio = download(bot, file).await?;
-    let wav = media::to_wav(audio, max_seconds(task))
+    let wav = media::to_wav(audio, media::SPEECH_RATE, max_seconds(task))
         .await
         .ok_or(Stop::React(FAILED_REACTION))?;
     check_length(task, wav.seconds).map_err(Stop::Reply)?;
@@ -516,10 +517,18 @@ fn check_length(task: TaskType, seconds: u32) -> Result<(), String> {
             format!("Translation is limited to recordings up to {MAX_TRANSLATE_DURATION} minutes.")
         }
         TaskType::Enhance => {
-            format!("/enhance is limited to recordings up to {MAX_ENHANCE_DURATION} minutes.")
+            format!(
+                "/enhance is limited to recordings up to {}.",
+                minutes(MAX_ENHANCE_DURATION)
+            )
         }
         _ => format!("Duration is above {MAX_DURATION} minutes"),
     })
+}
+
+/// "1 minute", "2 minutes".
+fn minutes(n: u32) -> String {
+    format!("{n} minute{}", if n == 1 { "" } else { "s" })
 }
 
 fn setup_logging() -> Result<(), fern::InitError> {
@@ -570,10 +579,10 @@ mod tests {
 
     #[test]
     fn enhance_has_its_own_length_limit() {
-        assert!(check_length(TaskType::Enhance, 120).is_ok());
+        assert!(check_length(TaskType::Enhance, 60).is_ok());
         assert_eq!(
-            check_length(TaskType::Enhance, 121).unwrap_err(),
-            "/enhance is limited to recordings up to 2 minutes."
+            check_length(TaskType::Enhance, 61).unwrap_err(),
+            "/enhance is limited to recordings up to 1 minute."
         );
     }
 }

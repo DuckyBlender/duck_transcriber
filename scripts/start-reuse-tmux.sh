@@ -7,9 +7,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${REUSE_MODEL:-nvidia/RE-USE}"
 HOST="${REUSE_HOST:-0.0.0.0}"
 PORT="${REUSE_PORT:-8083}"
-# NVIDIA's chunks are 5 seconds, which need about 1.1 GB of VRAM while they run.
-# whisper.cpp and llama.cpp leave about 850 MB of a 4 GB GPU, which fits 2
-# second chunks (about 570 MB).
+# NVIDIA's chunks are 5 seconds. The bot sends 32 kHz, where 2 second chunks
+# need about 950 MB of VRAM while they run, inside the 1.5 GB llama.cpp leaves
+# free (LLAMA_FIT_TARGET); 3 second chunks need 1.3 GB.
 CHUNK_SECONDS="${REUSE_CHUNK_SECONDS:-2}"
 UV_BIN="${UV_BIN:-"$(command -v uv || echo "$HOME/.local/bin/uv")"}"
 # llama-server fits as many layers as the free VRAM allows when it starts, so

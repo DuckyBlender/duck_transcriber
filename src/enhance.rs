@@ -5,9 +5,13 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore, SemaphorePermit};
 
 pub const REUSE_MODEL: &str = "NVIDIA RE-USE";
+/// The rate recordings are enhanced at. On EARS studio speech made noisy like a
+/// Telegram voice message, 32 kHz beat 16 kHz on PESQ in every clip and restores
+/// what's above 8 kHz as well as 48 kHz does, at two thirds of 48 kHz's GPU time.
+pub const SAMPLE_RATE: u32 = 32_000;
 const DEFAULT_REUSE_URL: &str = "http://host.docker.internal:8083/v1/audio/enhance";
-// Covers one recording, since the bot sends them one at a time: a 2 minute
-// recording takes about 76 seconds on the shared GPU.
+// Covers one recording, since the bot sends them one at a time: a 1 minute
+// recording takes about 85 seconds on the shared GPU.
 const REUSE_TIMEOUT: Duration = Duration::from_secs(300);
 // Recordings that may wait while another one is being enhanced. More would
 // wait minutes, so they are turned away instead.
@@ -31,7 +35,7 @@ pub fn queue() -> Option<Slot> {
     slot
 }
 
-/// Cleans up 16 kHz mono WAV (noise, echo, bad microphones) with the local
+/// Cleans up `SAMPLE_RATE` mono WAV (noise, echo, bad microphones) with the local
 /// RE-USE server, and returns the result as WAV at the same sample rate. Waits
 /// for the recordings ahead of it in the queue first.
 pub async fn enhance(_slot: &Slot, wav: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -83,7 +87,9 @@ mod tests {
     async fn enhances_with_a_running_server() {
         let path = env::var("REUSE_TEST_AUDIO").expect("REUSE_TEST_AUDIO not set");
         let audio = std::fs::read(path).unwrap();
-        let wav = crate::media::to_wav(audio, 1800).await.unwrap();
+        let wav = crate::media::to_wav(audio, SAMPLE_RATE, 1800)
+            .await
+            .unwrap();
         let slot = queue().unwrap();
         let enhanced = enhance(&slot, wav.bytes).await.unwrap();
         let voice = crate::media::to_voice(enhanced).await.unwrap();
