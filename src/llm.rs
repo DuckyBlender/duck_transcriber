@@ -25,7 +25,7 @@ pub struct Prompt {
 /// The prompt for `task`, or `None` when the transcript itself is the result.
 pub fn prompt(task: TaskType) -> Option<Prompt> {
     let (system, temperature, max_tokens) = match task {
-        TaskType::Transcribe | TaskType::Phonon => return None,
+        TaskType::Transcribe | TaskType::Phonon | TaskType::Enhance => return None,
         TaskType::Translate => (TRANSLATE_PROMPT, 0.2, 8192),
         TaskType::Summarize => (SUMMARY_PROMPT, 0.4, 512),
         TaskType::Caveman => (CAVEMAN_PROMPT, 0.7, 512),

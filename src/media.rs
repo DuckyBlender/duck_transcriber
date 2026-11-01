@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::process::Command;
 
-// 16 kHz mono 16-bit samples, which is what whisper.cpp and Phonon both want.
+// 16 kHz mono 16-bit samples, which is what whisper.cpp, Phonon and RE-USE get.
 const WAV_BYTES_PER_SECOND: u32 = 16_000 * 2;
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(60);
 // The containers Telegram voice messages, video notes, videos and audio files
@@ -30,53 +30,77 @@ pub struct Wav {
 /// header can be wrong. Decoding stops a second past `max_seconds`, so refusing
 /// a longer recording costs no more than that and it still comes back too long.
 pub async fn to_wav(audio: Vec<u8>, max_seconds: u32) -> Option<Wav> {
+    // -fs counts output bytes, so timestamps in the file can't fool it.
+    let max_bytes = (max_seconds + 1) * WAV_BYTES_PER_SECOND;
+    let max_bytes = max_bytes.to_string();
+    let wav = ffmpeg(
+        audio,
+        INPUT_FORMATS,
+        &[
+            "-vn", "-ac", "1", "-ar", "16000", "-fs", &max_bytes, "-f", "wav",
+        ],
+    )
+    .await?;
+    Some(Wav {
+        seconds: wav_seconds(wav.len()),
+        bytes: wav,
+    })
+}
+
+/// Encodes WAV from the RE-USE server as an Ogg Opus voice message, the only
+/// format Telegram shows as one.
+pub async fn to_voice(wav: Vec<u8>) -> Option<Vec<u8>> {
+    ffmpeg(
+        wav,
+        "wav",
+        &["-ac", "1", "-c:a", "libopus", "-b:a", "48k", "-f", "ogg"],
+    )
+    .await
+}
+
+/// Runs ffmpeg on `input`, which must be in one of `input_formats`, and returns
+/// what it writes with `output_args`. Returns `None` after logging why it
+/// couldn't.
+async fn ffmpeg(input: Vec<u8>, input_formats: &str, output_args: &[&str]) -> Option<Vec<u8>> {
     // ffmpeg reads a file rather than stdin because mp4 files often keep their
     // index at the end, which a pipe can't seek back to.
-    let input = TempFile::new();
-    if let Err(err) = tokio::fs::write(&input.0, audio).await {
+    let file = TempFile::new();
+    if let Err(err) = tokio::fs::write(&file.0, input).await {
         error!("Failed to write audio for ffmpeg: {err}");
         return None;
     }
 
-    // -fs counts output bytes, so timestamps in the file can't fool it.
-    let max_bytes = (max_seconds + 1) * WAV_BYTES_PER_SECOND;
     let output = Command::new("ffmpeg")
         .args(["-nostdin", "-loglevel", "error"])
-        .args(["-format_whitelist", INPUT_FORMATS, "-i"])
-        .arg(&input.0)
-        .args(["-vn", "-ac", "1", "-ar", "16000", "-fs"])
-        .arg(max_bytes.to_string())
-        .args(["-f", "wav", "pipe:1"])
+        .args(["-format_whitelist", input_formats, "-i"])
+        .arg(&file.0)
+        .args(output_args)
+        .arg("pipe:1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .output();
 
-    let output = match tokio::time::timeout(FFMPEG_TIMEOUT, output).await {
-        Ok(Ok(output)) if output.status.success() => output,
+    match tokio::time::timeout(FFMPEG_TIMEOUT, output).await {
+        Ok(Ok(output)) if output.status.success() => Some(output.stdout),
         Ok(Ok(output)) => {
             error!(
                 "ffmpeg failed ({}): {}",
                 output.status,
                 truncate_for_log(&String::from_utf8_lossy(&output.stderr))
             );
-            return None;
+            None
         }
         Ok(Err(err)) => {
             error!("Failed to run ffmpeg: {err}");
-            return None;
+            None
         }
         Err(_) => {
-            error!("ffmpeg timed out decoding audio");
-            return None;
+            error!("ffmpeg timed out");
+            None
         }
-    };
-
-    Some(Wav {
-        seconds: wav_seconds(output.stdout.len()),
-        bytes: output.stdout,
-    })
+    }
 }
 
 /// The length of a `to_wav` output. Its header is under 100 bytes, far less
@@ -184,6 +208,18 @@ mod tests {
         assert!(to_wav(spoof, 600).await.unwrap().seconds > 600);
 
         assert!(to_wav(b"not audio".to_vec(), 1800).await.is_none());
+
+        // What RE-USE sends back goes out as an Ogg Opus voice message.
+        let wav = to_wav(
+            encode(&["-i", "sine=duration=3", "-f", "wav", "pipe:1"]),
+            60,
+        )
+        .await
+        .unwrap();
+        let voice = to_voice(wav.bytes).await.unwrap();
+        assert!(voice.starts_with(b"OggS"));
+        assert!(voice.windows(8).any(|w| w == b"OpusHead"));
+        assert!(to_voice(b"not audio".to_vec()).await.is_none());
         // A playlist pointing at another file in the temp directory.
         let playlist = b"ffconcat version 1.0\nfile duck-audio-1-0\n".to_vec();
         assert!(to_wav(playlist, 1800).await.is_none());

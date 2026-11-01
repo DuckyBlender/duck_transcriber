@@ -8,8 +8,8 @@ use teloxide::types::{FileUniqueId, UserId};
 const CACHE_EXPIRATION_DAYS: i64 = 7;
 const SUMMARY_CACHE_EXPIRATION_HOURS: i64 = 1;
 const RATE_LIMIT_CLEANUP_MINUTES: i64 = 120;
-// LLM usage has a daily limit, so it is kept for a full day.
-const LLM_USAGE_CLEANUP_HOURS: i64 = 24;
+// Quotas have daily limits, so their usage is kept for a full day.
+const QUOTA_USAGE_CLEANUP_HOURS: i64 = 24;
 
 /// The bot's in-memory state: cached results and rate limit records. All of it
 /// is lost on restart.
@@ -24,11 +24,13 @@ struct DatabaseState {
     // replace the whisper.cpp transcript. The i64 is when it expires.
     cache: HashMap<(FileUniqueId, TaskType), (Cached, i64)>,
     rate_limits: Vec<RateLimitEntry>,
-    llm_usage: Vec<RateLimitEntry>,
+    quota_usage: HashMap<Quota, Vec<RateLimitEntry>>,
 }
 
 /// A cached result and the decoded length in seconds of the recording it came
 /// from. /translate's limit reads it when it starts from a cached transcript.
+/// For /enhance the text is the file id of the cleaned up voice message, which
+/// Telegram lets the bot send again without uploading it.
 #[derive(Clone)]
 pub struct Cached {
     pub text: String,
@@ -40,16 +42,26 @@ struct RateLimitEntry {
     timestamp: i64,
 }
 
-/// Limits on llama.cpp requests (translations and summaries), which are far
-/// slower than whisper.cpp and share one GPU.
-pub struct LlmLimits {
+/// Work that is far slower than whisper.cpp on the shared GPU, so it has its
+/// own limits on top of the per-user audio rate limit.
+#[derive(strum::Display, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Quota {
+    /// llama.cpp requests: translations and summaries.
+    #[strum(to_string = "LLM")]
+    Llm,
+    /// RE-USE runs: /enhance.
+    #[strum(to_string = "RE-USE")]
+    Enhance,
+}
+
+pub struct QuotaLimits {
     pub per_user_hour: usize,
     pub per_user_day: usize,
     pub global_hour: usize,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum LlmUsage {
+pub enum QuotaUsage {
     Allowed,
     UserLimited,
     GlobalLimited,
@@ -98,31 +110,37 @@ impl Database {
         true
     }
 
-    /// Records one llama.cpp request for the user if it fits within `limits`.
-    pub fn check_and_record_llm_usage(&self, user_id: UserId, limits: &LlmLimits) -> LlmUsage {
+    /// Records one use of `quota` for the user if it fits within `limits`.
+    pub fn check_and_record_quota(
+        &self,
+        quota: Quota,
+        user_id: UserId,
+        limits: &QuotaLimits,
+    ) -> QuotaUsage {
         let now = current_timestamp();
         let mut state = self.lock();
+        let usage = state.quota_usage.entry(quota).or_default();
 
-        let user_hour = count(&state.llm_usage, Some(user_id), now - 3600);
-        let user_day = count(&state.llm_usage, Some(user_id), now - 24 * 3600);
+        let user_hour = count(usage, Some(user_id), now - 3600);
+        let user_day = count(usage, Some(user_id), now - 24 * 3600);
         if user_hour >= limits.per_user_hour || user_day >= limits.per_user_day {
             warn!(
-                "LLM limit exceeded for user {user_id}: {user_hour} requests in the last hour, {user_day} in the last day"
+                "{quota} limit exceeded for user {user_id}: {user_hour} requests in the last hour, {user_day} in the last day"
             );
-            return LlmUsage::UserLimited;
+            return QuotaUsage::UserLimited;
         }
 
-        let global_hour = count(&state.llm_usage, None, now - 3600);
+        let global_hour = count(usage, None, now - 3600);
         if global_hour >= limits.global_hour {
-            warn!("Global LLM limit reached: {global_hour} requests in the last hour");
-            return LlmUsage::GlobalLimited;
+            warn!("Global {quota} limit reached: {global_hour} requests in the last hour");
+            return QuotaUsage::GlobalLimited;
         }
 
-        state.llm_usage.push(RateLimitEntry {
+        usage.push(RateLimitEntry {
             user_id,
             timestamp: now,
         });
-        LlmUsage::Allowed
+        QuotaUsage::Allowed
     }
 
     pub fn cleanup_expired(&self) {
@@ -146,10 +164,10 @@ impl Database {
             info!("Deleted {deleted_rate_limits} old rate limit entries");
         }
 
-        let llm_threshold = now - LLM_USAGE_CLEANUP_HOURS * 3600;
-        state
-            .llm_usage
-            .retain(|entry| entry.timestamp > llm_threshold);
+        let quota_threshold = now - QUOTA_USAGE_CLEANUP_HOURS * 3600;
+        for usage in state.quota_usage.values_mut() {
+            usage.retain(|entry| entry.timestamp > quota_threshold);
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, DatabaseState> {
@@ -168,7 +186,7 @@ fn count(entries: &[RateLimitEntry], user_id: Option<UserId>, since: i64) -> usi
 fn cache_expiration_seconds(task: TaskType) -> i64 {
     match task {
         TaskType::Summarize | TaskType::Caveman => SUMMARY_CACHE_EXPIRATION_HOURS * 3600,
-        TaskType::Transcribe | TaskType::Phonon | TaskType::Translate => {
+        TaskType::Transcribe | TaskType::Phonon | TaskType::Translate | TaskType::Enhance => {
             CACHE_EXPIRATION_DAYS * 24 * 3600
         }
     }
@@ -185,44 +203,48 @@ fn current_timestamp() -> i64 {
 mod tests {
     use super::*;
 
-    const LIMITS: LlmLimits = LlmLimits {
+    const LIMITS: QuotaLimits = QuotaLimits {
         per_user_hour: 2,
         per_user_day: 3,
         global_hour: 4,
     };
 
-    fn request(db: &Database, user: u64) -> LlmUsage {
-        db.check_and_record_llm_usage(UserId(user), &LIMITS)
+    fn request(db: &Database, user: u64) -> QuotaUsage {
+        db.check_and_record_quota(Quota::Llm, UserId(user), &LIMITS)
     }
 
     #[test]
     fn limits_each_user_per_hour() {
         let db = Database::default();
-        assert_eq!(request(&db, 1), LlmUsage::Allowed);
-        assert_eq!(request(&db, 1), LlmUsage::Allowed);
-        assert_eq!(request(&db, 1), LlmUsage::UserLimited);
-        assert_eq!(request(&db, 2), LlmUsage::Allowed);
+        assert_eq!(request(&db, 1), QuotaUsage::Allowed);
+        assert_eq!(request(&db, 1), QuotaUsage::Allowed);
+        assert_eq!(request(&db, 1), QuotaUsage::UserLimited);
+        assert_eq!(request(&db, 2), QuotaUsage::Allowed);
     }
 
     #[test]
     fn limits_each_user_per_day() {
         let db = Database::default();
         let two_hours_ago = current_timestamp() - 2 * 3600;
-        db.lock().llm_usage.extend((0..3).map(|_| RateLimitEntry {
-            user_id: UserId(1),
-            timestamp: two_hours_ago,
-        }));
-        assert_eq!(request(&db, 1), LlmUsage::UserLimited);
-        assert_eq!(request(&db, 2), LlmUsage::Allowed);
+        db.lock()
+            .quota_usage
+            .entry(Quota::Llm)
+            .or_default()
+            .extend((0..3).map(|_| RateLimitEntry {
+                user_id: UserId(1),
+                timestamp: two_hours_ago,
+            }));
+        assert_eq!(request(&db, 1), QuotaUsage::UserLimited);
+        assert_eq!(request(&db, 2), QuotaUsage::Allowed);
     }
 
     #[test]
     fn limits_everyone_together_per_hour() {
         let db = Database::default();
         for user in 1..=4 {
-            assert_eq!(request(&db, user), LlmUsage::Allowed);
+            assert_eq!(request(&db, user), QuotaUsage::Allowed);
         }
-        assert_eq!(request(&db, 5), LlmUsage::GlobalLimited);
+        assert_eq!(request(&db, 5), QuotaUsage::GlobalLimited);
     }
 
     #[test]
@@ -230,8 +252,20 @@ mod tests {
         let db = Database::default();
         request(&db, 1);
         request(&db, 1);
-        assert_eq!(request(&db, 1), LlmUsage::UserLimited);
-        assert_eq!(db.lock().llm_usage.len(), 2);
+        assert_eq!(request(&db, 1), QuotaUsage::UserLimited);
+        assert_eq!(db.lock().quota_usage[&Quota::Llm].len(), 2);
+    }
+
+    #[test]
+    fn counts_each_quota_separately() {
+        let db = Database::default();
+        request(&db, 1);
+        request(&db, 1);
+        assert_eq!(request(&db, 1), QuotaUsage::UserLimited);
+        assert_eq!(
+            db.check_and_record_quota(Quota::Enhance, UserId(1), &LIMITS),
+            QuotaUsage::Allowed
+        );
     }
 
     #[test]

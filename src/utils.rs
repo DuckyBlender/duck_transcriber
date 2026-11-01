@@ -3,10 +3,12 @@ use log::{error, info, warn};
 use serde::de::DeserializeOwned;
 use teloxide::{
     Bot, RequestError,
-    payloads::{SendDocumentSetters, SendMessageSetters, SetMessageReactionSetters},
+    payloads::{
+        SendDocumentSetters, SendMessageSetters, SendVoiceSetters, SetMessageReactionSetters,
+    },
     prelude::Requester,
     sugar::request::RequestReplyExt,
-    types::{ChatAction, ChatId, InputFile, Message, ParseMode, ReactionType},
+    types::{ChatAction, ChatId, FileId, InputFile, Message, ParseMode, ReactionType},
     utils::html,
 };
 use tokio::time::{Duration, sleep};
@@ -28,6 +30,7 @@ pub async fn send_result(bot: &Bot, message: &Message, text: &str, task: TaskTyp
             TaskType::Transcribe | TaskType::Phonon => "transcript",
             TaskType::Translate => "translation",
             TaskType::Summarize | TaskType::Caveman => "summary",
+            TaskType::Enhance => "recording",
         };
         info!("The {label} is too long, sending it as a file");
         let file = InputFile::memory(text.as_bytes().to_vec()).file_name(format!("{label}.txt"));
@@ -50,6 +53,49 @@ pub async fn send_result(bot: &Bot, message: &Message, text: &str, task: TaskTyp
         }
         _ if message.chat.is_private() => reply(bot, message, text, None).await,
         _ => reply(bot, message, &expandable_quote(text), Some(ParseMode::Html)).await,
+    }
+}
+
+/// How `send_voice` got the recording out.
+pub enum SentVoice {
+    /// As a voice message, whose file id can send it again without uploading.
+    Voice(FileId),
+    /// As a file, for chats that don't take voice messages.
+    Document,
+    Failed,
+}
+
+/// Replies with an Ogg Opus voice message. Users can refuse voice messages and
+/// groups can forbid them, so when Telegram refuses it the recording goes out
+/// as a file instead.
+pub async fn send_voice(bot: &Bot, message: &Message, voice: InputFile, seconds: u32) -> SentVoice {
+    let sent = bot
+        .send_voice(message.chat.id, voice.clone())
+        .duration(seconds)
+        .reply_to(message.id)
+        .disable_notification(true)
+        .await;
+    let err = match sent {
+        Ok(sent) => {
+            return sent.voice().map_or(SentVoice::Failed, |voice| {
+                SentVoice::Voice(voice.file.id.clone())
+            });
+        }
+        Err(err) => err,
+    };
+    warn!("Failed to send voice message, sending a file instead: {err}");
+
+    let sent = bot
+        .send_document(message.chat.id, voice)
+        .reply_to(message.id)
+        .disable_notification(true)
+        .await;
+    match sent {
+        Ok(_) => SentVoice::Document,
+        Err(err) => {
+            warn!("Failed to send document: {err}");
+            SentVoice::Failed
+        }
     }
 }
 
@@ -92,12 +138,16 @@ impl Drop for TypingIndicatorGuard {
     }
 }
 
-/// Sends the "typing" action now and then every 5 seconds until the returned
-/// guard is dropped. Returns `None` when Telegram rejects the first one, which
-/// means the bot can't post in the chat (muted, read-only group, kicked), so
-/// there is no point transcribing anything for it.
-pub async fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> Option<TypingIndicatorGuard> {
-    match bot.send_chat_action(chat_id, ChatAction::Typing).await {
+/// Sends `action` ("typing", "sending a voice message") now and then every 5
+/// seconds until the returned guard is dropped. Returns `None` when Telegram
+/// rejects the first one, which means the bot can't post in the chat (muted,
+/// read-only group, kicked), so there is no point transcribing anything for it.
+pub async fn start_typing_indicator(
+    bot: Bot,
+    chat_id: ChatId,
+    action: ChatAction,
+) -> Option<TypingIndicatorGuard> {
+    match bot.send_chat_action(chat_id, action).await {
         Err(RequestError::Api(err)) => {
             info!("Skipping chat {chat_id}, the bot can't post there: {err}");
             return None;
@@ -110,7 +160,7 @@ pub async fn start_typing_indicator(bot: Bot, chat_id: ChatId) -> Option<TypingI
     let task = tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(5)).await;
-            if let Err(err) = bot.send_chat_action(chat_id, ChatAction::Typing).await {
+            if let Err(err) = bot.send_chat_action(chat_id, action).await {
                 warn!("Failed to send typing indicator: {err}");
             }
         }

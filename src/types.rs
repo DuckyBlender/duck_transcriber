@@ -18,6 +18,8 @@ pub enum BotCommand {
     Summarize,
     #[command(description = "summarize the replied audio message like a caveman")]
     Caveman,
+    #[command(description = "clean up the replied audio (removes noise and echo)", aliases = ["cleanup"])]
+    Enhance,
     #[command(description = "show privacy policy")]
     Privacy,
     #[command(description = "show current rate limit", aliases = ["ratelimits", "ratelimit"])]
@@ -39,6 +41,8 @@ pub enum TaskType {
     Summarize,
     #[strum(to_string = "caveman")]
     Caveman,
+    #[strum(to_string = "enhance")]
+    Enhance,
 }
 
 /// The file of the voice message, video note, video or audio file in `message`.

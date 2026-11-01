@@ -1,5 +1,5 @@
 use chrono::Local;
-use database::{Cached, Database, LlmLimits, LlmUsage};
+use database::{Cached, Database, Quota, QuotaLimits, QuotaUsage};
 use dotenvy::dotenv;
 use log::{debug, info, warn};
 use std::env;
@@ -7,12 +7,13 @@ use std::sync::Arc;
 use std::time::Instant;
 use teloxide::net::Download;
 use teloxide::prelude::*;
-use teloxide::types::{FileMeta, Me, ParseMode};
+use teloxide::types::{ChatAction, FileId, FileMeta, InputFile, Me, ParseMode};
 use teloxide::utils::command::BotCommands;
 use types::{BotCommand, TaskType, audio_file};
-use utils::{reply, send_result, set_reaction, start_typing_indicator};
+use utils::{SentVoice, reply, send_result, send_voice, set_reaction, start_typing_indicator};
 
 mod database;
+mod enhance;
 mod llm;
 mod media;
 mod phonon;
@@ -27,7 +28,7 @@ const MAX_FILE_SIZE: u32 = 20;
 const USER_RATE_LIMIT_REACTION: &str = "🙊";
 // llama.cpp translations and summaries are slow and share the GPU with
 // whisper.cpp, so they get their own, much lower limits.
-const LLM_LIMITS: LlmLimits = LlmLimits {
+const LLM_LIMITS: QuotaLimits = QuotaLimits {
     per_user_hour: 15,
     per_user_day: 50,
     global_hour: 100,
@@ -35,9 +36,19 @@ const LLM_LIMITS: LlmLimits = LlmLimits {
 // Translating writes out the whole transcript at ~12 tokens/s, about 15 s per
 // minute of audio; 10 minutes stays well inside the LLM timeout.
 const MAX_TRANSLATE_DURATION: u32 = 10;
-// Reacted when the bot as a whole has hit the LLM limit.
+// RE-USE takes about 40 seconds of the shared GPU per minute of audio, during
+// which transcriptions wait, so /enhance is limited the most: 12 recordings of
+// up to 2 minutes an hour hold the GPU for about a quarter of the time.
+const ENHANCE_LIMITS: QuotaLimits = QuotaLimits {
+    per_user_hour: 5,
+    per_user_day: 15,
+    global_hour: 12,
+};
+const MAX_ENHANCE_DURATION: u32 = 2;
+// Reacted when the bot as a whole has hit the LLM or /enhance limit.
 const BUSY_REACTION: &str = "😴";
-// Reacted instead of replying when whisper.cpp or llama.cpp can't produce a result.
+// Reacted instead of replying when whisper.cpp, llama.cpp or RE-USE can't
+// produce a result.
 const FAILED_REACTION: &str = "💔";
 
 const START_TEXT: &str = "Welcome! Send a voice message or video note to transcribe it. You can also use /help to see all available commands.";
@@ -144,6 +155,7 @@ async fn handle_command(
         BotCommand::Translate => (TaskType::Translate, "translate it"),
         BotCommand::Summarize => (TaskType::Summarize, "summarize it"),
         BotCommand::Caveman => (TaskType::Caveman, "summarize it like a caveman"),
+        BotCommand::Enhance => (TaskType::Enhance, "clean it up"),
     };
 
     // The audio is in the command's own message, with the command as its
@@ -172,10 +184,12 @@ fn privacy_text() -> String {
         • Transcribes with {} running locally on an RTX 3050 Mobile\n\
         • /phonon transcribes with {} running locally on the CPU\n\
         • Translates and summarizes with {} running locally on the same machine\n\
+        • /enhance cleans up audio with {} running locally on the same GPU\n\
         • Audio and text are never sent to any third-party service",
         transcribe::WHISPER_MODEL,
         phonon::PHONON_MODEL,
-        llm::LLM_MODEL
+        llm::LLM_MODEL,
+        enhance::REUSE_MODEL
     )
 }
 
@@ -188,9 +202,12 @@ fn limits_text() -> String {
         <b>/translate, /summarize and /caveman</b>\n\
         • <b>Per User:</b> {} per hour, {} per day\n\
         • <b>Whole Bot:</b> {} per hour\n\
-        • <b>/translate:</b> recordings up to {} minutes\n\
-        • Results that are already cached don't count\n\n\
-        Everything runs on one local GPU, so the AI commands are limited to keep the bot fast for everyone.\n\n\
+        • <b>/translate:</b> recordings up to {} minutes\n\n\
+        <b>/enhance</b>\n\
+        • <b>Per User:</b> {} per hour, {} per day\n\
+        • <b>Whole Bot:</b> {} per hour\n\
+        • Recordings up to {} minutes\n\n\
+        Results that are already cached don't count. Everything runs on one local GPU, so the AI commands are limited to keep the bot fast for everyone.\n\n\
         <b>Reactions</b>\n\
         • 🙊 You hit your limit\n\
         • 😴 The bot is busy, try again later\n\
@@ -200,7 +217,11 @@ fn limits_text() -> String {
         LLM_LIMITS.per_user_hour,
         LLM_LIMITS.per_user_day,
         LLM_LIMITS.global_hour,
-        MAX_TRANSLATE_DURATION
+        MAX_TRANSLATE_DURATION,
+        ENHANCE_LIMITS.per_user_hour,
+        ENHANCE_LIMITS.per_user_day,
+        ENHANCE_LIMITS.global_hour,
+        MAX_ENHANCE_DURATION
     )
 }
 
@@ -210,6 +231,13 @@ enum Stop {
     Reply(String),
     /// Reacts instead, so failures and limits stay quiet in groups.
     React(&'static str),
+}
+
+/// What an audio request is answered with: text, or for /enhance the cleaned
+/// up recording as a voice message.
+enum Answer {
+    Text(String),
+    Voice { voice: InputFile, seconds: u32 },
 }
 
 /// Runs `task` on `file` and answers `request`. Every audio command and every
@@ -223,16 +251,40 @@ async fn handle_audio(
     user_id: UserId,
 ) {
     info!("Received audio {} for {task}", file.unique_id);
+    let action = match task {
+        TaskType::Enhance => ChatAction::UploadVoice,
+        _ => ChatAction::Typing,
+    };
     // Checked before the rate limit so a chat where the bot can't post doesn't
     // use up the sender's quota.
-    let Some(typing) = start_typing_indicator(bot.clone(), request.chat.id).await else {
+    let Some(typing) = start_typing_indicator(bot.clone(), request.chat.id, action).await else {
         return;
     };
-    let result = run_task(bot, db, file, task, user_id).await;
+    let result = match task {
+        TaskType::Enhance => run_enhance(bot, db, file, user_id).await,
+        _ => run_task(bot, db, file, task, user_id)
+            .await
+            .map(Answer::Text),
+    };
     drop(typing);
 
     match result {
-        Ok(text) => send_result(bot, request, &text, task).await,
+        Ok(Answer::Text(text)) => send_result(bot, request, &text, task).await,
+        Ok(Answer::Voice { voice, seconds }) => {
+            match send_voice(bot, request, voice, seconds).await {
+                // Telegram sends a file it already has again by its id, so the
+                // id is what gets cached.
+                SentVoice::Voice(id) => {
+                    let cached = Cached {
+                        text: id.0,
+                        seconds,
+                    };
+                    db.set_cached(&file.unique_id, task, cached);
+                }
+                SentVoice::Document => {}
+                SentVoice::Failed => set_reaction(bot, request, FAILED_REACTION).await,
+            }
+        }
         Err(Stop::Reply(text)) => reply(bot, request, &text, None).await,
         Err(Stop::React(emoji)) => set_reaction(bot, request, emoji).await,
     }
@@ -278,11 +330,7 @@ async fn run_task(
         return Ok(transcript.text);
     };
 
-    match db.check_and_record_llm_usage(user_id, &LLM_LIMITS) {
-        LlmUsage::Allowed => {}
-        LlmUsage::UserLimited => return Err(Stop::React(USER_RATE_LIMIT_REACTION)),
-        LlmUsage::GlobalLimited => return Err(Stop::React(BUSY_REACTION)),
-    }
+    check_quota(db, Quota::Llm, user_id, &LLM_LIMITS)?;
 
     info!("Asking {} to {task}", llm::LLM_MODEL);
     // The model translates and summarizes straight from the original language.
@@ -297,6 +345,73 @@ async fn run_task(
     };
     db.set_cached(&file.unique_id, task, result.clone());
     Ok(result.text)
+}
+
+/// The cleaned up recording for /enhance: sent again from the cache when it
+/// can, or downloaded, decoded and run through RE-USE now.
+async fn run_enhance(
+    bot: &Bot,
+    db: &Database,
+    file: &FileMeta,
+    user_id: UserId,
+) -> Result<Answer, Stop> {
+    if !db.check_and_record_usage(user_id, RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_HOUR) {
+        return Err(Stop::React(USER_RATE_LIMIT_REACTION));
+    }
+    // Cached results cost no quota and skip the length limit, which they passed
+    // when they were made.
+    if let Some(cached) = db.get_cached(&file.unique_id, TaskType::Enhance) {
+        info!("Found the enhanced {} in the cache", file.unique_id);
+        return Ok(Answer::Voice {
+            voice: InputFile::file_id(FileId(cached.text)),
+            seconds: cached.seconds,
+        });
+    }
+
+    let audio = download(bot, file).await?;
+    let wav = media::to_wav(audio, max_seconds(TaskType::Enhance))
+        .await
+        .ok_or(Stop::React(FAILED_REACTION))?;
+    check_length(TaskType::Enhance, wav.seconds).map_err(Stop::Reply)?;
+    let slot = enhance::queue().ok_or(Stop::React(BUSY_REACTION))?;
+    // Counted only now, so recordings that are too long, broken or turned away
+    // cost nothing.
+    check_quota(db, Quota::Enhance, user_id, &ENHANCE_LIMITS)?;
+
+    info!(
+        "Enhancing {}s of audio with {}",
+        wav.seconds,
+        enhance::REUSE_MODEL
+    );
+    let started = Instant::now();
+    let enhanced = enhance::enhance(&slot, wav.bytes).await.map_err(|e| {
+        warn!("Failed to enhance audio: {e}");
+        Stop::React(FAILED_REACTION)
+    })?;
+    let voice = media::to_voice(enhanced)
+        .await
+        .ok_or(Stop::React(FAILED_REACTION))?;
+    info!("Enhanced audio in {}ms", started.elapsed().as_millis());
+
+    Ok(Answer::Voice {
+        voice: InputFile::memory(voice).file_name("enhanced.ogg"),
+        seconds: wav.seconds,
+    })
+}
+
+/// Records one use of `quota` for the user, or says how to react when the user
+/// or the whole bot is over its limits.
+fn check_quota(
+    db: &Database,
+    quota: Quota,
+    user_id: UserId,
+    limits: &QuotaLimits,
+) -> Result<(), Stop> {
+    match db.check_and_record_quota(quota, user_id, limits) {
+        QuotaUsage::Allowed => Ok(()),
+        QuotaUsage::UserLimited => Err(Stop::React(USER_RATE_LIMIT_REACTION)),
+        QuotaUsage::GlobalLimited => Err(Stop::React(BUSY_REACTION)),
+    }
 }
 
 /// The transcript `task` starts from, with the decoded length of its
@@ -384,6 +499,7 @@ async fn download(bot: &Bot, file: &FileMeta) -> Result<Vec<u8>, Stop> {
 fn max_seconds(task: TaskType) -> u32 {
     60 * match task {
         TaskType::Translate => MAX_TRANSLATE_DURATION,
+        TaskType::Enhance => MAX_ENHANCE_DURATION,
         _ => MAX_DURATION,
     }
 }
@@ -398,6 +514,9 @@ fn check_length(task: TaskType, seconds: u32) -> Result<(), String> {
     Err(match task {
         TaskType::Translate => {
             format!("Translation is limited to recordings up to {MAX_TRANSLATE_DURATION} minutes.")
+        }
+        TaskType::Enhance => {
+            format!("/enhance is limited to recordings up to {MAX_ENHANCE_DURATION} minutes.")
         }
         _ => format!("Duration is above {MAX_DURATION} minutes"),
     })
@@ -446,6 +565,15 @@ mod tests {
         assert_eq!(
             check_length(TaskType::Phonon, 1801).unwrap_err(),
             "Duration is above 30 minutes"
+        );
+    }
+
+    #[test]
+    fn enhance_has_its_own_length_limit() {
+        assert!(check_length(TaskType::Enhance, 120).is_ok());
+        assert_eq!(
+            check_length(TaskType::Enhance, 121).unwrap_err(),
+            "/enhance is limited to recordings up to 2 minutes."
         );
     }
 }
